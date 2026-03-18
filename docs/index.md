@@ -27,16 +27,16 @@ import { VPTeamMembers } from 'vitepress/theme'
 
 const members = [
   {
-    avatar: 'https://www.github.com/Sm1les.png',
-    name: 'Sm1les',
+    avatar: 'avatar.jpg',
+    name: '张文星',
     title: '项目负责人',
     links: [
-      { icon: 'github', link: 'https://github.com/Sm1les' },
+      { icon: 'github', link: 'https://github.com/funnamer' },
     ]
   },
   {
     avatar: 'https://www.github.com/Sm1les.png',
-    name: '马里奥',
+    name: 'Sm1les',
     title: '核心贡献者',
     links: [
       { icon: 'github', link: 'https://github.com/Sm1les' },

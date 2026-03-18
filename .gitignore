@@ -7,5 +7,5 @@ docs/.vitepress/cache
 ./code/miniMaster/.idea/
 ./code/miniMaster/workspace/
 .env
-
+.node_modules/
 

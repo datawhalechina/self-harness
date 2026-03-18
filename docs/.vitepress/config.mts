@@ -48,7 +48,8 @@ export default defineConfig({
           { text: '第2章：为什么需要上下文工程', link: '/chapter2/why_context_engineering' },
           { text: '第3章：如何设计上下文组件', link: '/chapter3/method' },
           { text: '第4章：动态上下文策略', link: '/chapter4/dynamic_context_strategies' },
-          { text: '第5章：渐进式披露', link: '/chapter5/progressive_disclosure' }
+          { text: '第5章：渐进式披露', link: '/chapter5/progressive_disclosure' },
+          { text: '第6章：miniMaster', link: '/chapter6/miniMaster' }
         ]
       }
     ],
