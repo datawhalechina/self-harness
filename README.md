@@ -28,7 +28,7 @@
 
 ## 在线阅读
 
-📖 [https://datawhalechina.github.io/context-engineering](https://datawhalechina.github.io/context-engineering)
+📖 [https://funnamer.github.io/dive-into-context-engineering](https://funnamer.github.io/dive-into-context-engineering)
 
 ## 目录
 *这里写你的项目目录，及其完成状态，已完成的部分添加上跳转链接*
