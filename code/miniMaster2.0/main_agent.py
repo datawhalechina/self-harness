@@ -3,6 +3,8 @@ import json
 import re
 from dotenv import load_dotenv
 from openai import OpenAI
+from langsmith import traceable
+from langsmith.wrappers import wrap_openai
 from tqdm.asyncio import tqdm_asyncio
 
 # 导入工具类
@@ -58,32 +60,64 @@ class ToDoList:
         return None
 
 
-class WorkingMemory:
-    """工作记忆管理类 - 记录agent短时记忆"""
+import json
 
-    def __init__(self):
+
+class WorkingMemory:
+    """工作记忆管理类 - 按照 Token(字符) 长度触发动态压缩"""
+
+    def __init__(self, keep_latest_n: int = 3, max_chars: int = 45000):
         self.memories = []
+        # 触发压缩时，保留最后几个步骤的完整 JSON 不被压缩（保持当前工作的连贯性）
+        self.keep_latest_n = keep_latest_n
+        # 触发阈值：20k token 大约等于 40000~50000 个字符
+        self.max_chars = max_chars
+        self.summary = ""
 
     def add_memory(self, step: int, tool_name: str, parameters: dict, result: any):
+        """添加新记忆（不限制单个结果长度，只管全局长度）"""
         self.memories.append({
             "step": step,
             "tool_call": {"tool_name": tool_name, "parameters": parameters},
             "result": result
         })
 
-    def get_memory_by_step(self, step: int):
-        for memory in self.memories:
-            if memory["step"] == step:
-                return memory.copy()
-        return None
+    def get_prompt_context(self) -> str:
+        """组装给 Agent 看的完整上下文"""
+        context = ""
+        if self.summary:
+            context += f"【早期步骤摘要】:\n{self.summary}\n\n"
+
+        # 只要没超限，Agent 就能看到所有步骤的完整内容
+        context += "【执行步骤】:\n" + json.dumps(self.memories, ensure_ascii=False, indent=2)
+        return context
 
     def get_all_memories(self):
+        """兼容其他组件调用"""
         return self.memories.copy()
+
+    def check_needs_summary(self) -> bool:
+        """核心策略：判断当前上下文是否超过了 20k Token (即 max_chars)"""
+        current_length = len(self.get_prompt_context())
+        # 只有长度超标，且记忆数量大于我们要保留的底线时，才触发压缩
+        return current_length > self.max_chars and len(self.memories) > self.keep_latest_n
+
+    def get_memories_to_summarize(self) -> list:
+        """获取需要被压缩的庞大旧记忆"""
+        if self.check_needs_summary():
+            # 取出除了最后 keep_latest_n 步之外的所有早期记忆，打包送去压缩
+            return self.memories[:-self.keep_latest_n]
+        return []
+
+    def commit_summary(self, new_summary: str):
+        """用大模型返回的摘要覆盖旧摘要，并清理掉已被压缩的冗长数据"""
+        self.summary = new_summary
+        # 只保留最后 keep_latest_n 步的详细记忆，腾出大量空间
+        self.memories = self.memories[-self.keep_latest_n:]
 
     def clear_memories(self):
         self.memories = []
-
-
+        self.summary = ""
 # ==========================================
 # 辅助函数
 # ==========================================
@@ -119,12 +153,14 @@ def parse_model_output(response_text: str):
 # 工具实例缓存
 tool_instances = {}
 
+
 def get_tool_instance(tool_class):
     """获取工具实例（单例模式）"""
     class_name = tool_class.__name__
     if class_name not in tool_instances:
         tool_instances[class_name] = tool_class()
     return tool_instances[class_name]
+
 
 # 初始化工具注册表（全局单例）
 tool_registry = get_registry()
@@ -144,6 +180,36 @@ def execute_tool(tool_name: str, parameters: dict):
 
     # 使用工具注册表执行工具
     return tool_registry.execute(tool_name, parameters)
+
+
+# ==========================================
+# Agent LLM 调用封装 (用于 LangSmith 追踪)
+# ==========================================
+@traceable(name="1_Plan-Agent_Brain")
+def call_plan_agent(prompt: str, model_name: str, client: OpenAI) -> str:
+    response = client.chat.completions.create(
+        model=model_name,
+        messages=[{"role": "user", "content": prompt}]
+    )
+    return response.choices[0].message.content
+
+
+@traceable(name="2_Generator-Agent_Execution")
+def call_generator_agent(prompt: str, model_name: str, client: OpenAI) -> str:
+    response = client.chat.completions.create(
+        model=model_name,
+        messages=[{"role": "user", "content": prompt}]
+    )
+    return response.choices[0].message.content
+
+
+@traceable(name="3_Validate-Agent_Review")
+def call_validate_agent(prompt: str, model_name: str, client: OpenAI) -> str:
+    response = client.chat.completions.create(
+        model=model_name,
+        messages=[{"role": "user", "content": prompt}]
+    )
+    return response.choices[0].message.content
 
 
 # ==========================================
@@ -168,10 +234,10 @@ if __name__ == "__main__":
         print("请在 .env 文件中设置: BASE_URL=https://api.example.com")
         exit(1)
 
-    client = OpenAI(
+    client = wrap_openai(OpenAI(
         api_key=API_KEY,
         base_url=BASE_URL,
-    )
+    ))
 
     # 获取用户输入的查询
     user_query = input("请输入你的任务/查询: ").strip()
@@ -186,56 +252,54 @@ if __name__ == "__main__":
 
     # 🟢 第一层循环：Plan-Agent (任务规划与调度)
     for i in range(max_iter):
-        print(f"\n{'='*60}")
-        print(f"🔄 Plan-Agent 第 {i+1} 次迭代")
-        print(f"{'='*60}")
+        print(f"\n{'=' * 60}")
+        print(f"🔄 Plan-Agent 第 {i + 1} 次迭代")
+        print(f"{'=' * 60}")
 
         # 1. 组装 Plan-Agent Prompt
         plan_prompt = f"""
-你是一个规划智能体，你的任务是根据用户的 query 维护和调度当前工作状态。
+你是一个规划智能体，你的任务是根据用户的 需求 维护和调度当前工作状态。
 
 <user query>
 {user_query}
 </user query>
 
-<to do list>
+<tasks>
 {to_do_list.get_all_tasks()}
-</to do list>
+</tasks>
 
 <available tools>
-- init_tasks: 初始化任务列表，一次性添加多个任务
+- init_tasks: 初始化任务列表
   Input schema: {{"type": "object", "properties": {{"tasks": {{"type": "array", "items": {{"type": "string"}}}}}}, "required": ["tasks"]}}
 
-- add_task: 添加单个任务
+- add_task: 添加单个任务，当任务全部完成还无法满足用户需求时，增加任务
   Input schema: {{"type": "object", "properties": {{"task_name": {{"type": "string"}}}}, "required": ["task_name"]}}
 
-- update_task_status: 更新任务状态
+- update_task_status: 更新任务状态，若任务经过了验证，则设置任务状态为done
   Input schema: {{"type": "object", "properties": {{"task_name": {{"type": "string"}}, "status": {{"type": "string", "enum": ["PENDING", "DONE", "FAILED"]}}}}, "required": ["task_name", "status"]}}
 
-- subagent_tool: 创建子智能体执行具体任务（分配到具体执行者）
+- subagent_tool: 你不需要主动完成具体任务，而是将任务交给子agent执行
   Input schema: {{"type": "object", "properties": {{"task_name": {{"type": "string", "description": "要执行的任务名称"}}}}, "required": ["task_name"]}}
 </available tools>
 
-<instructions>
-1. 分析用户查询和当前任务列表
-2. 选择合适的工具来管理任务
-3. init_tasks 用于初始化，add_task 用于添加单个任务
-4. subagent_tool 用于将任务分配给执行智能体
-</instructions>
+<attention>
+利用你所拥有的tool，完成用户的需求
+你的能力有限，无法完全完成特别复杂的任务，比如部署服务器、创建数据库等等
+你只是一个助手，不要把问题复杂化，简洁明了的完成用户的需求即可
+不需要做测试
+</attention>
 
 <output format>
     <think>你的思考内容：分析当前状态，选择合适工具</think>
     <tool>你要使用的工具名称</tool>
-    <parameter>{{"参数名": "参数值"}}  <!-- 工具参数，JSON格式 --></parameter>
+    <parameter>{{"参数名": "参数值"}}  </parameter>
 </output format>
 """
 
-        plan_response = client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=[{"role": "user", "content": plan_prompt}]
-        )
+        # 修改为调用带有 traceable 的函数
+        plan_content = call_plan_agent(plan_prompt, MODEL_NAME, client)
+        plan_tool, plan_params = parse_model_output(plan_content)
 
-        plan_tool, plan_params = parse_model_output(plan_response.choices[0].message.content)
         print(f"📋 Plan-Agent 选择工具: {plan_tool}")
         print(f"📋 Plan-Agent 参数: {plan_params}")
 
@@ -276,19 +340,35 @@ if __name__ == "__main__":
             print(f"📝 任务详情: {curr_task}")
 
             # 🟡 第二层循环：Generator (任务执行与生成)
-            generator_memory.clear_memories()
+            generator_memory = WorkingMemory(keep_latest_n=8, max_chars=80000)
             gen_step = 0
 
             while True:
                 gen_step += 1
                 print(f"\n  🔧 Generator 第 {gen_step} 步")
 
+                if generator_memory.check_needs_summary():
+                    pending_memories = generator_memory.get_memories_to_summarize()
+                    print(f"  🧠 检测到记忆滑出窗口，正在进行批量压缩...")
+
+                    summary_prompt = f"""你是一个记忆压缩助手。请将以下早期的工具执行记录压缩成一段简短的摘要。
+                保留关键信息：尝试了什么工具、完成了什么任务，结论是什么。
+
+                现有的早期摘要：{generator_memory.summary}
+
+                需要合并的新记录：
+                {json.dumps(pending_memories, ensure_ascii=False)}
+                """
+                    new_summary = call_generator_agent(summary_prompt, MODEL_NAME, client)
+                    generator_memory.commit_summary(new_summary)
+                    print(f"  ✅ 记忆压缩完成。")
+
                 # 获取工具描述（动态生成）
                 base_tools = tool_registry.get_all_tools_prompt(category="base_tool")
                 search_tools = tool_registry.get_all_tools_prompt(category="search_tool")
 
                 generator_prompt = f"""
-你是一个生成智能体，你的任务是执行具体任务并生成内容。
+你是一个执行智能体，你的任务是执行具体任务并生成内容。
 
 <user query>
 {user_query}
@@ -299,7 +379,7 @@ if __name__ == "__main__":
 </current task>
 
 <working memory>
-{generator_memory.get_all_memories()}
+{generator_memory.get_prompt_context()}
 </working memory>
 
 <available tools>
@@ -315,25 +395,22 @@ if __name__ == "__main__":
 </available tools>
 
 <instructions>
-1. 仔细分析当前任务和用户查询
-2. 选择合适的工具来帮助你完成任务
-3. 按照 output format 格式输出
-4. 如果需要调用工具，parameter 必须是合法的 JSON 格式
+1.<user query>仅供你参考全局信息，你的任务是完成<current task>
+2.每一步执行，你都需要关注<working memory>，你曾经做了什么，再决定下一步做什么
+3.你只是一个助手，不要做太复杂的任务，不要把问题复杂化
 </instructions>
 
 <output format>
     <think>你的思考内容：分析任务，选择合适的工具，解释为什么</think>
     <tool>你要使用的工具名称（从 available tools 中选择）</tool>
-    <parameter>{{"参数名": "参数值"}}  <!-- 工具需要的参数，JSON格式 --></parameter>
+    <parameter>{{"参数名": "参数值"}}  </parameter>
 </output format>
 """
 
-                gen_response = client.chat.completions.create(
-                    model=MODEL_NAME,
-                    messages=[{"role": "user", "content": generator_prompt}]
-                )
+                # 修改为调用带有 traceable 的函数
+                gen_content = call_generator_agent(generator_prompt, MODEL_NAME, client)
+                gen_tool, gen_params = parse_model_output(gen_content)
 
-                gen_tool, gen_params = parse_model_output(gen_response.choices[0].message.content)
                 print(f"  🛠️  Generator 选择工具: {gen_tool}")
                 print(f"  🛠️  参数: {gen_params}")
 
@@ -365,7 +442,7 @@ if __name__ == "__main__":
                         base_tools = tool_registry.get_all_tools_prompt(category="base_tool")
                         search_tools = tool_registry.get_all_tools_prompt(category="search_tool")
 
-                        val_prompt = f"""你是一个测试验证智能体，你的任务是验证工作是否有效。
+                        val_prompt = f"""你是一个测试验证智能体，你的任务是验证当前task的完成是否有效。
 
 <task>
 {updated_task}
@@ -388,10 +465,8 @@ if __name__ == "__main__":
 </available tools>
 
 <instructions>
-1. 分析任务和完成结论
-2. 使用工具（如 read, grep 等）验证结论是否正确
-3. 最后调用 validate_tool 给出验证结果（"有效" 或 "无效"）
-4. 如果无效，提供详细原因
+1.使用工具验证当前任务是否有效完成
+2.调用 validate_tool 给出验证结果
 </instructions>
 
 <output format>
@@ -401,12 +476,10 @@ if __name__ == "__main__":
 </output format>
 """
 
-                        val_response = client.chat.completions.create(
-                            model=MODEL_NAME,
-                            messages=[{"role": "user", "content": val_prompt}]
-                        )
+                        # 修改为调用带有 traceable 的函数
+                        val_content = call_validate_agent(val_prompt, MODEL_NAME, client)
+                        val_tool, val_params = parse_model_output(val_content)
 
-                        val_tool, val_params = parse_model_output(val_response.choices[0].message.content)
                         print(f"    🛠️  Validate-Agent 选择工具: {val_tool}")
                         print(f"    🛠️  参数: {val_params}")
 
