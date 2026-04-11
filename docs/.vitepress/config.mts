@@ -45,24 +45,24 @@ export default defineConfig({
       {
         text: 'Context Engineering 教程',
         items: [
-          { text: '第1章：什么是上下文工程', link: '/chapter1/what_is_context_engineering' },
-          { text: '第2章：为什么需要上下文工程', link: '/chapter2/why_context_engineering' },
-          { text: '第3章：如何设计上下文组件', link: '/chapter3/method' },
-          { text: '第4章：动态上下文策略', link: '/chapter4/dynamic_context_strategies' },
-          { text: '第5章：渐进式披露', link: '/chapter5/progressive_disclosure' },
-          { text: '第6章：miniMaster', link: '/chapter6/miniMaster' }
+          { text: '第1章：总览', link: '/chapter1/overview' },
+          { text: '第2章：提示词工程', link: '/chapter2/prompt_engineering' },
+          { text: '第3章：上下文工程', link: '/chapter3/context_engineering' },
+          { text: '第4章：harness-engineering', link: '/chapter4/harness_engineering' },
+          { text: '第5章：从提示词到上下文到harness的演进', link: '/chapter5/evolution' },
+          { text: '第6章：小项目实践', link: '/chapter6/miniMaster' }
         ]
       }
     ],
 
     // 修正为你的 GitHub 地址
     socialLinks: [
-      { icon: 'github', link: 'https://github.com/funnamer/dive-into-context-engineering' }
+      { icon: 'github', link: 'https://github.com/datawhalechina/dive-into-context-engineering' }
     ],
 
     // 修正在线编辑链接
     editLink: {
-      pattern: 'https://github.com/funnamer/dive-into-context-engineering/blob/main/docs/:path'
+      pattern: 'https://github.com/datawhalechina/dive-into-context-engineering/blob/main/docs/:path'
     },
 
     footer: {

@@ -4,7 +4,7 @@ layout: home
 
 hero:
   name: "Datawhale开源教程"
-  text: "Dive Into Context Engineering"
+  text: "self-harness"
   tagline: 开始学起来吧~
   image:
     src: /learning.GIF
@@ -12,7 +12,7 @@ hero:
   actions:
     - theme: brand
       text: 开始学习
-      link: /chapter1/what_is_context_engineering
+      link: /chapter1/overview
 
 features:
   - title: 💥 前沿

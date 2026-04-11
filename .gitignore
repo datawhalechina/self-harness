@@ -8,4 +8,6 @@ docs/.vitepress/cache
 ./code/miniMaster/workspace/
 .env
 .node_modules/
+.github/
+.claude
 
