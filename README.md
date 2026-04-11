@@ -1,17 +1,16 @@
-<h1 align="center">Dive Into Context Engineering - 上下文工程实战指南 </h1>
+<h1 align="center">self-harness - 实战指南 </h1>
 
 > [!WARNING]
 > 🧪 Beta 公测版本提示：教程主体已完成，正在优化细节，欢迎大家提 Issue 反馈问题或建议。
 
 ## 项目简介
 
-本项目是一本关于**上下文工程（Context Engineering）**的开源教程，旨在帮助开发者理解和掌握在大模型时代如何高效管理和组织 AI 系统的上下文信息。
+本项目是一本关于**Harness Engineering**的开源教程，旨在帮助开发者理解和掌握在大模型时代，如何为复杂、长时间运行的 AI 智能体（Agent）构建健壮的底层运行架构。
 
-随着智能体（Agent）技术的发展，传统的提示词工程（Prompt Engineering）正在向上下文工程转变。上下文工程不再仅仅是"如何写好一句话来引导 AI"，而是构建一套严密的、模块化的系统架构，通过科学地调度指令、知识、工具、记忆和状态，让 AI 系统能够在复杂、动态的环境中做出准确的响应。
-
+随着智能体技术的发展，AI 系统的开发范式正在经历深刻的演进：从单次的提示词工程（Prompt Engineering），到动态信息管理的上下文工程（Context Engineering），最终迈向系统级的 Harness Engineering。
 本教程包含理论讲解和实践代码两部分：
-- **理论部分**：系统介绍上下文工程的核心概念、设计原则和实现策略
-- **实践部分**：通过 miniMaster 项目（一个最小化的 Claude Code Skills 实现），展示如何将上下文工程理论应用于实际开发
+- **理论部分**：系统介绍提示词工程、上下文工程、harness的核心概念、设计原则、实现策略。以及为什么会一步步演进到harness engineering
+- **实践部分**：通过 miniMaster 项目（一个最小化的 Harness 实现），展示如何将Harness理论应用于实际开发
 
 ## 项目受众
 
@@ -31,29 +30,57 @@
 📖 [https://funnamer.github.io/dive-into-context-engineering](https://funnamer.github.io/dive-into-context-engineering)
 
 ## 目录
-*这里写你的项目目录，及其完成状态，已完成的部分添加上跳转链接*
 
-| 章节名                                                                                                                   | 简介                                               | 状态 |
-|-----------------------------------------------------------------------------------------------------------------------|--------------------------------------------------| ---- |
-| [第1章 什么是上下文工程](https://github.com/datawhalechina/repo-template/blob/main/docs/chapter1)                               | 上下文工程的定义以及与提示词工程的区别                              | ✅ |
-| [第2章 为什么需要上下文工程](https://github.com/datawhalechina/repo-template/blob/main/docs/chapter2)                             | 从实际场景落地的角度分析，为什么需要上下文工程                          | ✅ |
-| [第3章 如何设计上下文中的每一个组件？](https://github.com/datawhalechina/repo-template/blob/main/docs/chapter3)                        | 给出在设计agent时需要遵循的原则                               | ✅ |
-| [第4章 动态上下文管理策略 (Dynamic Context Strategies)](https://github.com/datawhalechina/repo-template/blob/main/docs/chapter3) | 如何去动态管理上下文                                       | ✅ |
-| [第5章 Progressive disclosure（渐进式披露)](https://github.com/datawhalechina/repo-template/blob/main/docs/chapter3)          | 一种前沿而优雅的上下文工程设计哲学                                | ✅ |
-| [第6章 miniMaster-最小实现claude code skills板块](https://github.com/datawhalechina/repo-template/blob/main/docs/chapter3)    | 基于渐进式披露的设计哲学，最小化实现agent skills的核心逻辑，并可视化过程，不再是黑盒 | 🚧 |
-## miniMaster
-示例采用authropic官方关于文档的skills-docx，pdf，pptx，xlsx
+| 章节名                                                                                                                              | 简介                                                             | 状态 |
+|----------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------|------|
+| [第1章 总览](https://github.com/datawhalechina/repo-template/blob/main/docs/chapter1/overview.md)                                    | 总览                                                             | ✅ |
+| [第2章 什么是提示词工程](https://github.com/datawhalechina/repo-template/blob/main/docs/chapter2/prompt_engineering.md)                    | Prompt Engineering的概念、方法、局限性                                   | ✅ |
+| [第3章 什么是上下文工程](https://github.com/datawhalechina/repo-template/blob/main/docs/chapter3/context_engineering.md)                   | 上下文工程的概念和方法                                                    | ✅ |
+| [第4章 长时运行下的 Harness Engineering](https://github.com/datawhalechina/repo-template/blob/main/docs/chapter4/harness_engineering.md) | 再长时间复杂软件开发中、如何设计harness以保证agent在长时间的运行中不会出错                    | ✅ |
+| [第5章 三种工程的演进](https://github.com/datawhalechina/repo-template/blob/main/docs/chapter5/evolution.md)                              | 这三种工程理论的演进                                                     | ✅ |
+| [第6章 miniMaster 实战项目](https://github.com/datawhalechina/repo-template/blob/main/docs/chapter6/miniMaster.md)                 | 实现一个最小的 harness 系统，包含 Tool 设计、动态工作记忆、三层嵌套循环架构。快速体验harness的设计理念 | ✅ |
+## miniMaster 实战项目
 
-运行示例：
-![图片描述](./docs/public/run_eg.png)
-完整日志：
-[日志](./code/miniMaster/log.txt)
+miniMaster 是一个最小的harness系统实现，展示了如何将上下文工程和 Harness 工程理论应用于实际开发。
+
+### 核心特性
+
+- **系统 Tool 设计**：包含基础系统工具（Bash、Read、Write、Edit）和搜索检索工具（Glob、Grep），所有工具遵循统一的接口规范
+- **动态工作记忆管理**：分级、动态的记忆管理，以保证智能体在处理任务时，能快速获取到必要的信息
+- **三层嵌套循环架构**：Plan-Agent（全局调度）→ Generator-Agent（执行者）→ Validate-Agent（评估者），形成完整的纠错闭环
+
+### 运行示例
+
+![运行示例](./docs/public/run_eg.png)
+
+### 完整日志
+
+[查看完整执行日志](./code/miniMaster2.0/log.txt)
+
+### 代码结构
+
+```
+code/miniMaster2.0/
+├── tools/
+│   ├── base_tool/          # 基础系统工具
+│   │   ├── bash_tool.py    # Shell 命令执行
+│   │   ├── read_tool.py    # 文件读取
+│   │   ├── write_tool.py   # 文件写入
+│   │   └── edit_tool.py    # 文件编辑
+│   └── search_tool/        # 搜索检索工具
+│       ├── glob_tool.py    # 通配符文件查找
+│       └── grep_tool.py    # 正则文本搜索
+├── utils/
+│   └── get_tools.py        # 工具统一管理
+├── main_agent.py           # 主智能体入口
+└── requirements.txt        # 依赖包列表
+```
 
 ## 贡献者名单
 
-| 姓名  | 职责 |
-|:----| :---- |
-| 张文星 | 项目负责人 |
+| 姓名 | 职责 | GitHub |
+|:----|:----|:----|
+| 张文星 | 项目负责人、教程设计与实现 | [@funnamer](https://github.com/funnamer) |
 
 
 
