@@ -10,4 +10,6 @@ docs/.vitepress/cache
 .node_modules/
 .github/
 .claude
+CLAUDE.md
+Recruitment.md
 
