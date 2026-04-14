@@ -29,9 +29,9 @@ C=A(c1,c2,…,cn)
 
 ### 管理维度的不同：从“静态单点”到“动态全局”
 
-**提示词工程 (Prompt Engineering)：**视角相对静态。通常是面向“单次（One-shot）”任务进行优化，打磨一段完美的静态文本。  
+**提示词工程 (Prompt Engineering)：** 视角相对静态。通常是面向“单次（One-shot）”任务进行优化，打磨一段完美的静态文本。  
 
-**提示词工程 (Prompt Engineering)：**视角是全局且动态的。它管理的是整个上下文状态 (Context State)，其中包括：系统指令、工具定义、模型上下文协议 (MCP)、外部数据、以及不断增长的历史消息。
+**上下文工程 (Context Engineering)：** 视角是全局且动态的。它管理的是整个上下文状态 (Context State)，其中包括：系统指令、工具定义、模型上下文协议 (MCP)、外部数据、以及不断增长的历史消息。
 
 随着智能体的发展，prompt engineering这一范式正在逐步转变为context engineering
 
