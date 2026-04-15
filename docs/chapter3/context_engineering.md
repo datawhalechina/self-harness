@@ -89,7 +89,7 @@ C=A(c1,c2,…,cn)
 - 过度抽象：未指导具体行为规范
 
 ### 示例：
-![sys_prompt.png](../public/sys_prompt.png)
+![sys_prompt.png](../images/sys_prompt.png)
 
 * 太具体 (Too specific)： 包含死板的强制步骤、复杂的条件逻辑（如大量的 if-else 判断）和试图穷举所有极端情况的清单。这会过度限制 AI，使其缺乏灵活性。
 
