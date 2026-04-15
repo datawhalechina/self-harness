@@ -347,10 +347,16 @@ if __name__ == "__main__":
             # 🟡 第二层循环：Generator (任务执行与生成)
             generator_memory = WorkingMemory(keep_latest_n=8, max_chars=80000)
             gen_step = 0
+            max_gen_iter = 20  # Generator 单任务最大迭代次数，防止验证失败时无限重试
 
             while True:
                 gen_step += 1
                 print(f"\n  🔧 Generator 第 {gen_step} 步")
+
+                if gen_step > max_gen_iter:
+                    print(f"  ⚠️  Generator 达到最大迭代次数 {max_gen_iter}，强制结束当前任务")
+                    to_do_list.update_task_status(curr_task_name, "DONE")
+                    break  # 结束第二层循环，回到第一层循环 (Plan-Agent)
 
                 if generator_memory.check_needs_summary():
                     pending_memories = generator_memory.get_memories_to_summarize()
