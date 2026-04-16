@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="./images/self-harness.png" alt="self-harness" width="60%"/>
+  <img src="./images/self-harness.png" alt="self-harness"/>
   <h1>self-harness</h1>
   <h3>🚀 Harness Engineering 快速入门与实践</h3>
   <img src="https://img.shields.io/github/stars/datawhalechina/self-harness?style=flat&logo=github" alt="GitHub stars"/>

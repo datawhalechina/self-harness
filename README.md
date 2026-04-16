@@ -1,4 +1,4 @@
-<h1 align="center">self-harness - 实战指南 </h1>
+<h1 align="center">self-harness - 实战指南（⚠️ Alpha内测版）</h1>
 
 <p align="center">
   <img src="docs/images/self-harness.png" alt="self-harness" width="720">
@@ -11,9 +11,6 @@
   <a href="https://github.com/datawhalechina/self-harness/network/members">
     <img src="https://img.shields.io/github/forks/datawhalechina/self-harness?style=for-the-badge&label=FORKS&color=4ecdc4&labelColor=333" alt="Forks">
   </a>
-  <a href="https://github.com/datawhalechina/self-harness/issues">
-    <img src="https://img.shields.io/github/issues/datawhalechina/self-harness?style=for-the-badge&label=ISSUES&color=f1c40f&labelColor=333" alt="Issues">
-  </a>
   <br>
   <a href="https://github.com/datawhalechina/self-harness">
     <img src="https://img.shields.io/badge/TUTORIAL-Harness%20Engineering-3498db?style=for-the-badge&labelColor=333" alt="Tutorial">
@@ -22,16 +19,14 @@
     <img src="https://img.shields.io/badge/在线阅读-立即开始-2ecc71?style=for-the-badge&labelColor=333" alt="在线阅读">
   </a>
   <br>
-  <a href="https://github.com/datawhalechina/self-harness/discussions">
-    <img src="https://img.shields.io/badge/讨论交流-加入我们-9b59b6?style=for-the-badge&labelColor=333" alt="讨论交流">
-  </a>
   <a href="http://creativecommons.org/licenses/by-nc-sa/4.0/">
     <img src="https://img.shields.io/badge/LICENSE-CC%20BY--NC--SA%204.0-lightgrey?style=for-the-badge&labelColor=333" alt="License">
   </a>
 </p>
 
-> [!WARNING]
-> 🧪 Beta 公测版本提示：教程主体已完成，正在优化细节，欢迎大家提 Issue 反馈问题或建议。
+> [!CAUTION]
+> ⚠️ Alpha内测版本警告：此为早期内部构建版本，尚不完整且可能存在错误，欢迎大家提Issue反馈问题或建议。
+
 
 ## 项目简介
 
