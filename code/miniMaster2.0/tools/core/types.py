@@ -28,10 +28,13 @@ class ToolSpec:
 class ToolContext:
     """描述工具实例共享的运行时上下文。
 
-    当前主要用于传递工作目录，后续也可以扩展环境变量或外部依赖句柄。
+    当前主要用于传递工作目录和基础运行环境信息，后续也可以扩展环境变量
+    或外部依赖句柄。把这些上下文集中到这里后，工具系统的不同层都能基于
+    同一份环境认知工作，避免各处各自猜测“当前到底运行在什么环境里”。
     """
 
     workspace: str = "."
+    system_name: str = ""
     env: Dict[str, str] = field(default_factory=dict)
     extra: Dict[str, Any] = field(default_factory=dict)
 

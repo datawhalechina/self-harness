@@ -8,8 +8,7 @@
 """
 
 from __future__ import annotations
-
-import json
+import os
 from abc import ABC, abstractmethod
 from typing import Any, Dict
 
@@ -47,13 +46,6 @@ class BaseTool(ABC):
     def input_schema(self) -> Dict[str, Any]:
         return self.spec.input_schema
 
-    def prompt_block(self) -> str:
-        """把工具信息渲染成旧 Prompt 模板仍可直接使用的文本块。"""
-        return (
-            f"- {self.name}: {self.description}\n"
-            f"  Input schema: {json.dumps(self.input_schema, ensure_ascii=False)}"
-        )
-
     def validate(self, params: Dict[str, Any]) -> None:
         """按照 ToolSpec 中声明的简化 schema 做运行前校验。"""
         if not isinstance(params, dict):
@@ -80,6 +72,49 @@ class BaseTool(ABC):
                 continue
             self._validate_field(field_name, value, field_schema)
 
+    def resolve_path(self, path: str) -> str:
+        """把路径参数解析成基于 workspace 的绝对路径。
+
+        工具层允许模型传入相对路径，例如 `main.py`、`./docs`、`logs/*.txt`。
+        同时也允许更贴近用户习惯的 `~/Desktop/test.txt`、`%USERPROFILE%\\Desktop`
+        这类写法，因此这里会先展开用户目录和环境变量。
+        为了保证所有工具对“当前目录”的理解一致，这里统一以
+        `self.context.workspace` 为基准解析路径；如果传入的本来就是绝对路径，
+        则原样返回。
+        """
+        if not path:
+            return self.context.workspace or os.getcwd()
+
+        expanded_path = os.path.expandvars(os.path.expanduser(path))
+
+        if os.path.isabs(expanded_path):
+            return os.path.abspath(expanded_path)
+
+        workspace = self.context.workspace or os.getcwd()
+        return os.path.abspath(os.path.join(workspace, expanded_path))
+
+    def relativize_path(self, path: str) -> str:
+        """尽量把绝对路径还原成相对 workspace 的展示路径。
+
+        工具内部通常会把路径解析成绝对路径，便于稳定访问文件系统；
+        但返回给 Agent 时，过长的绝对路径不够直观。因此这里会在路径位于
+        workspace 内部时，尽量转回相对路径，便于模型阅读和总结。
+        """
+        workspace = self.context.workspace or os.getcwd()
+        absolute_path = os.path.abspath(path)
+        workspace_path = os.path.abspath(workspace)
+
+        try:
+            common_path = os.path.commonpath([absolute_path, workspace_path])
+        except ValueError:
+            return absolute_path
+
+        if common_path != workspace_path:
+            return absolute_path
+
+        relative_path = os.path.relpath(absolute_path, workspace_path)
+        return "." if relative_path == "." else relative_path
+
     def execute(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """执行标准流程：校验参数 -> 运行工具 -> 归一化结果。"""
         self.validate(params)
@@ -87,23 +122,16 @@ class BaseTool(ABC):
         return self.normalize_result(result)
 
     def normalize_result(self, result: Any) -> Dict[str, Any]:
-        """兼容新旧两类返回格式，统一整理成带 success 字段的 dict。"""
-        if isinstance(result, ToolResult):
-            # ToolResult 是新框架推荐的标准结构，额外信息放在 data 中统一展开。
-            payload = {"success": result.success, **result.data}
-            if result.error is not None:
-                payload["error"] = result.error
-            return payload
+        """把 ToolResult 整理成统一的对外字典格式。"""
+        if not isinstance(result, ToolResult):
+            raise TypeError(
+                f"{self.__class__.__name__}.run() 必须返回 ToolResult，实际返回 {type(result).__name__}"
+            )
 
-        if isinstance(result, dict):
-            # 兼容历史工具直接返回 dict 的写法；若未显式声明 success，则默认为成功。
-            if "success" not in result:
-                return {"success": True, **result}
-            return result
-
-        raise TypeError(
-            f"{self.__class__.__name__}.run() 必须返回 ToolResult 或 dict，实际返回 {type(result).__name__}"
-        )
+        payload = {"success": result.success, **result.data}
+        if result.error is not None:
+            payload["error"] = result.error
+        return payload
 
     def _validate_field(self, field_name: str, value: Any, field_schema: Dict[str, Any]) -> None:
         """校验单个字段的类型和枚举范围。"""

@@ -10,7 +10,7 @@ class EditTool(BaseTool):
 
     spec = ToolSpec(
         name="edit",
-        description="Edit a file by replacing text.",
+        description="按文本替换规则修改文件内容，默认以当前工作目录为基准解析相对路径。",
         category="base",
         input_schema={
             "type": "object",
@@ -35,18 +35,24 @@ class EditTool(BaseTool):
     )
 
     def run(self, tool_input: dict) -> ToolResult:
-        """先读完整文件，再依次执行替换并一次性回写。"""
+        """先读完整文件，再依次执行替换并一次性回写。
+
+        这里同样会先把相对路径解析到 workspace，保证编辑操作和读取、
+        搜索、写入工具对同一个相对路径指向同一个文件，不会因为启动目录
+        不同而改错位置。
+        """
         file_path = str(tool_input["file_path"])
         replacements = tool_input["replacements"]
+        resolved_path = self.resolve_path(file_path)
 
-        if not os.path.exists(file_path):
+        if not os.path.exists(resolved_path):
             return ToolResult(
                 success=False,
                 data={"message": "", "replacements_made": 0},
                 error=f"File not found: {file_path}",
             )
 
-        with open(file_path, "r", encoding="utf-8") as file_obj:
+        with open(resolved_path, "r", encoding="utf-8") as file_obj:
             content = file_obj.read()
 
         original_content = content
@@ -75,7 +81,7 @@ class EditTool(BaseTool):
             # 未发生任何改动时仍返回 success=True，表示工具运行成功但内容保持不变。
             return ToolResult(success=True, data={"message": "No changes made", "replacements_made": 0})
 
-        with open(file_path, "w", encoding="utf-8") as file_obj:
+        with open(resolved_path, "w", encoding="utf-8") as file_obj:
             file_obj.write(content)
 
         return ToolResult(
