@@ -25,7 +25,7 @@ class BaseTool(ABC):
     spec: ToolSpec = None
 
     def __init__(self, context: ToolContext = None):
-        """挂载共享上下文，例如工作目录、环境变量和扩展状态。"""
+        """挂载共享上下文，例如工作目录和系统信息。"""
         if not isinstance(self.spec, ToolSpec):
             raise ValueError(f"{self.__class__.__name__} 必须定义名为 spec 的 ToolSpec")
         self.context = context or ToolContext()

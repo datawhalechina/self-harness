@@ -3,7 +3,8 @@
 import os
 import subprocess
 
-from tools.core import BaseTool, ToolResult, ToolSpec
+from tools.core.base import BaseTool
+from tools.core.types import ToolResult, ToolSpec
 
 
 class BashTool(BaseTool):

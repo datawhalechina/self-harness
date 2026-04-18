@@ -1,47 +1,50 @@
-"""
-组合工具系统各组件的门面层。
+"""工具系统的显式注册与运行入口。"""
 
-ToolService 面向上层暴露一个稳定入口，把发现、实例化、执行和渲染
-这些细节都封装起来。
-"""
-
+import json
 import os
 import platform
-import json
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Type
+from typing import Any, Dict, Optional
+
+from tools.base_tool.bash_tool import BashTool
+from tools.base_tool.edit_tool import EditTool
+from tools.base_tool.read_tool import ReadTool
+from tools.base_tool.write_tool import WriteTool
+from tools.search_tool.glob_tool import GlobTool
+from tools.search_tool.grep_tool import GrepTool
 
 from .base import BaseTool
-from .catalog import ToolCatalog
-from .discover import PROJECT_ROOT, discover_tools
 from .types import ToolContext, ToolSpec
+
+BUILTIN_TOOLS = (
+    BashTool,
+    ReadTool,
+    WriteTool,
+    EditTool,
+    GlobTool,
+    GrepTool,
+)
 
 
 class ToolService:
-    """为工具发现、渲染和执行提供稳定入口。"""
+    """为固定内置工具提供渲染、实例化和执行能力。"""
 
     def __init__(
         self,
-        catalog: ToolCatalog,
+        tool_classes: tuple[type[BaseTool], ...],
         context: ToolContext,
     ):
-        self.catalog = catalog
+        self._tool_classes = {tool_class.spec.name: tool_class for tool_class in tool_classes}
         self.context = context
-        self._singletons: Dict[str, BaseTool] = {}
 
     @classmethod
     def bootstrap(cls, workspace: Optional[str] = None) -> "ToolService":
-        """按默认约定完成整套工具系统装配。"""
-        catalog = ToolCatalog()
-        discover_tools(catalog)
-
-        # 若调用方未显式传入工作目录，则退化到当前进程目录或项目根目录。
-        default_workspace = workspace or os.getcwd() or str(Path(PROJECT_ROOT))
+        """按固定内置工具集完成装配。"""
+        default_workspace = workspace or os.getcwd()
         context = ToolContext(
             workspace=default_workspace,
             system_name=platform.system(),
         )
-        return cls(catalog=catalog, context=context)
+        return cls(tool_classes=BUILTIN_TOOLS, context=context)
 
     def execute(self, name: str, params: Dict[str, Any]) -> Dict[str, Any]:
         """执行指定工具，并把常见失败统一收敛成结构化结果。"""
@@ -57,60 +60,27 @@ class ToolService:
 
     def render_prompt(self, category: Optional[str] = None) -> str:
         """渲染工具说明文本，供 Prompt 直接复用。"""
-        specs = self.catalog.list_specs(category=category)
-        return "\n".join(self.render_spec(spec) for spec in specs)
-
-    def list_tool_names(self) -> List[str]:
-        """列出所有已注册工具名称。"""
-        return self.catalog.list_tool_names()
+        specs = self._list_specs(category=category)
+        return "\n".join(
+            f"- {spec.name}: {spec.description}\n"
+            f"  Input schema: {json.dumps(spec.input_schema, ensure_ascii=False)}"
+            for spec in specs
+        )
 
     def get_tool(self, name: str) -> BaseTool:
         """返回工具实例，供兼容层或高级调用方直接访问。"""
-        spec = self.catalog.get_spec(name)
-        builder = self.catalog.get_builder(name)
-
-        if spec is None or builder is None:
+        tool_class = self._tool_classes.get(name)
+        if tool_class is None:
             raise KeyError(name)
 
-        if spec.singleton:
-            if name not in self._singletons:
-                self._singletons[name] = builder(context=self.context)
-            return self._singletons[name]
-
-        return builder(context=self.context)
-
-    def get_tool_class(self, name: str) -> Optional[Type[BaseTool]]:
-        """返回工具类本身，而不是实例。"""
-        return self.catalog.get_builder(name)
+        return tool_class(context=self.context)
 
     def get_tool_spec(self, name: str) -> Optional[ToolSpec]:
         """返回工具的结构化静态定义。"""
-        return self.catalog.get_spec(name)
-
-    def get_tools_by_category(self) -> Dict[str, List[str]]:
-        """按原始分类聚合工具名称。"""
-        return self.catalog.get_categories()
-
-    def render_spec(self, spec: ToolSpec) -> str:
-        """把单个 ToolSpec 渲染成 Prompt 中可直接使用的文本块。"""
-        return (
-            f"- {spec.name}: {spec.description}\n"
-            f"  Input schema: {json.dumps(spec.input_schema, ensure_ascii=False)}"
-        )
-
-    def get_runtime_environment_context(self) -> Dict[str, str]:
-        """返回当前工具系统所对应的运行环境上下文。
-
-        Prompt 需要知道“当前系统是什么”和“命令工具实际通过什么 shell 执行”。
-        这些信息本质上属于工具系统自身的运行事实，因此由 ToolService 对外
-        统一提供，比在主循环或兼容层中手工判断更稳妥。
-        """
-        command_shell = self._get_command_shell_name()
-        system_name = self.context.system_name or platform.system()
-        return {
-            "system_name": system_name,
-            "command_shell": command_shell,
-        }
+        tool_class = self._tool_classes.get(name)
+        if tool_class is None:
+            return None
+        return tool_class.spec
 
     def get_prompt_execution_context(self) -> Dict[str, str]:
         """返回 Prompt 层常用的统一执行上下文字段。
@@ -120,11 +90,10 @@ class ToolService:
         把这组字段在工具系统内部一次性整理好，可以减少上层主循环自己
         东拼西凑环境信息的重复工作。
         """
-        runtime_context = self.get_runtime_environment_context()
         return {
             "workspace_path": self.get_workspace_path(),
-            "system_name": runtime_context["system_name"],
-            "command_shell": runtime_context["command_shell"],
+            "system_name": self.context.system_name or platform.system(),
+            "command_shell": self._get_command_shell_name(),
         }
 
     def get_workspace_path(self) -> str:
@@ -136,13 +105,14 @@ class ToolService:
         return self.context.workspace
 
     def _get_command_shell_name(self) -> str:
-        """从 bash 工具定义中读取实际使用的底层命令 shell。
-
-        这里优先复用 bash 工具类自身暴露的静态信息，而不是在 Service 层
-        再写一遍平台判断逻辑。这样底层 shell 的知识仍然归 bash 工具所有，
-        Service 只负责组织并向上层暴露。
-        """
-        bash_tool_class = self.get_tool_class("bash")
-        if bash_tool_class and hasattr(bash_tool_class, "get_command_shell_name"):
-            return bash_tool_class.get_command_shell_name()
+        """返回 bash 工具实际使用的底层命令 shell 名称。"""
+        if hasattr(BashTool, "get_command_shell_name"):
+            return BashTool.get_command_shell_name()
         return "shell"
+
+    def _list_specs(self, category: Optional[str] = None) -> list[ToolSpec]:
+        """返回全部内置工具定义；可按分类过滤。"""
+        specs = [tool_class.spec for tool_class in self._tool_classes.values()]
+        if category is None:
+            return specs
+        return [spec for spec in specs if spec.category == category]

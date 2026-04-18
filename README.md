@@ -1,4 +1,4 @@
-<h1 align="center">self-harness - 实战指南（⚠️ Alpha内测版）</h1>
+<h1 align="center">self-harness - 实战指南（⚠️ Alpha内测）</h1>
 
 <p align="center">
   <img src="docs/images/self-harness.png" alt="self-harness" width="720">
@@ -25,7 +25,7 @@
 </p>
 
 > [!CAUTION]
-> ⚠️ Alpha内测版本警告：此为早期内部构建版本，尚不完整且可能存在错误，欢迎大家提Issue反馈问题或建议。
+> ⚠️ Alpha内测提醒：项目内容仍在持续完善中，可能存在错误或缺漏，欢迎大家提 Issue 反馈问题或建议。
 
 
 ## 项目简介
@@ -64,19 +64,19 @@
 | [第3章 什么是上下文工程](https://github.com/datawhalechina/self-harness/blob/main/docs/chapter3/context_engineering.md) | 上下文工程的概念和方法 | ✅ |
 | [第4章 长时运行下的 Harness Engineering](https://github.com/datawhalechina/self-harness/blob/main/docs/chapter4/harness_engineering.md) | 再长时间复杂软件开发中、如何设计 harness 以保证 agent 在长时间的运行中不会出错 | ✅ |
 | [第5章 三种工程的演进](https://github.com/datawhalechina/self-harness/blob/main/docs/chapter5/evolution.md) | 这三种工程理论的演进 | ✅ |
-| [第6章 miniMaster 实战项目](https://github.com/datawhalechina/self-harness/blob/main/docs/chapter6/miniMaster.md) | 实现一个最小的 harness 系统，包含 Tool 设计、Prompt/动作协议、动态工作记忆与三层嵌套循环架构。快速体验 harness 的设计理念 | ✅ |
+| [第6章 miniMaster 实战项目](https://github.com/datawhalechina/self-harness/blob/main/docs/chapter6/miniMaster.md) | 围绕 miniMaster 实例讲清 Tool 设计、Prompt/动作协议、动态工作记忆、验证闭环与三层智能体协作方式 | ✅ |
 
 ## miniMaster 实战项目
 
-miniMaster 是一个最小的 harness 系统实现，展示了如何将上下文工程和 Harness 工程理论应用于实际开发。
-在实现上，项目采用了清晰的模块化结构，把启动流程、Prompt 构造、动作协议、运行时状态和工具系统分别拆开，便于理解和扩展。
+miniMaster 是本教程配套的最小 Harness 实践项目，代码目录位于 [`code/miniMaster2.0/`](code/miniMaster2.0/)。
+它把任务建模、Prompt 构造、动作协议、运行时记忆、验证闭环和工具系统拆成清晰模块，便于理解一个可持续运行的 Agent 系统到底由哪些部件组成。
 
 ### 核心特性
 
-- **系统 Tool 设计**：包含基础系统工具（Bash、Read、Write、Edit）和搜索检索工具（Glob、Grep），并通过 `tools/core` 中的 `ToolCatalog + discover_tools + ToolService` 完成统一管理
-- **Prompt 与动作协议**：将 Prompt 构造、角色动作策略、原生 function call 协议拆分到 `prompting/` 中，避免 Prompt 和代码校验规则分叉
-- **动态工作记忆管理**：不仅支持超长上下文摘要，还会先压缩单次工具结果，减少长任务中的 Prompt 膨胀
-- **三层嵌套循环架构**：Plan-Agent（全局调度）→ Generator-Agent（执行者）→ Validate-Agent（评估者），并补充重复动作防护、只读工具缓存与验证收口逻辑，形成更稳定的纠错闭环
+- **系统 Tool 设计**：包含基础系统工具（Bash、Read、Write、Edit）和搜索检索工具（Glob、Grep），并通过 `tools/core` 中的 `ToolContext + ToolSpec + ToolService` 统一管理
+- **Prompt 与动作协议**：将 Prompt 构造、角色动作策略和原生 function call 协议拆分到 `llm/prompting/` 中，保证 Prompt 描述与动作边界一致
+- **动态工作记忆管理**：把 `planner_memory`、`generator_memory`、`validation_memory` 与 `retry_archive_by_task` 分开管理，既保留必要上下文，也能压缩旧轨迹
+- **三层嵌套循环架构**：Planner-Agent（全局调度）→ Executor-Agent（执行者）→ Validator-Agent（评估者），并配合 completion checklist、重复动作防护和重试归档形成稳定闭环
 
 ### 智能体架构图
 
@@ -84,88 +84,96 @@ miniMaster 是一个最小的 harness 系统实现，展示了如何将上下文
 
 ### 运行示例
 
-query: 扫描当前目录结构，识别所有项目
+query: 分析当前项目中 `memory/` 目录的实际作用，并说明 `planner_memory / generator_memory / validation_memory / retry_archive_by_task` 分别负责什么，以及这套 memory 是否跨重启持久化
 
 部分结果:
 
 plan-agent
 ```log
-============================================================
-🔄 Plan-Agent 第 1 次迭代
-============================================================
-📋 Plan-Agent 选择工具: init_tasks
-📋 Plan-Agent 参数: {'tasks': ['扫描当前目录结构，识别所有项目']}
-✅ 已初始化任务列表: ['扫描当前目录结构，识别所有项目']
+📋 Planner-Agent 选择工具: init_tasks
+📋 参数: {'tasks': [{'task_name': '分析 memory 目录作用', ...}]}
+✅ 已初始化任务列表: [{'task_name': '分析 memory 目录作用', ...}]
 
-============================================================
-🔄 Plan-Agent 第 2 次迭代
-============================================================
-📋 Plan-Agent 选择工具: subagent_tool
-📋 Plan-Agent 参数: {'task_name': '扫描当前目录结构，识别所有项目'}
+📋 Planner-Agent 选择工具: read
+📋 参数: {'file_path': 'C:\\Users\\25853\\Desktop\\self-harness\\code\\miniMaster2.0\\bootstrap\\runtime.py'}
+✅ 规划侦察结果: {'success': True, 'content': 'import os\\nimport time\\n...'}
+📋 Planner-Agent 选择工具: split_task
+📋 参数: {'target_task_name': '分析 memory 目录作用', ...}
 ```
 generator-agent
 ```log
-🚀 开始执行任务: 扫描当前目录结构，识别所有项目
-📝 任务详情: {'task_name': '扫描当前目录结构，识别所有项目', 'task_status': 'PENDING', 'task_conclusion': ''}
+🚀 开始执行任务: 分析 memory 目录作用
 
-  🔧 Generator 第 1 步
-  🛠️  Generator 选择工具: glob
-  🛠️  参数: {'pattern': '**/*', 'path': '.', 'recursive': true}
-  ✅ 工具执行结果: {'success': True, 'matches': ['app/bootstrap.py', 'app/orchestration.py', 'prompting/builders.py', 'runtime/memory.py', 'tools/base_tool/bash_tool.py', 'tools/core/service.py', 'tools/search_tool/grep_tool.py']}
+  🛠️ Executor-Agent 选择工具: read
+  🛠️ 参数: {'file_path': 'bootstrap/runtime.py'}
+  ✅ 工具执行结果: {'success': True, 'content': 'import os\\nimport time\\n...', 'total_lines': 107}
 
-  🔧 Generator 第 2 步
-  🛠️  Generator 选择工具: read
-  🛠️  参数: {'file_path': 'main_agent.py'}
-  ✅ 工具执行结果: {'success': True, 'content': 'from app.bootstrap import bootstrap_runtime\nfrom app.orchestration import run_main_loop\n...', 'total_lines': 16}
+  🛠️ Executor-Agent 选择工具: read
+  🛠️ 参数: {'file_path': 'memory/prompt_context.py'}
+  ✅ 工具执行结果: {'success': True, 'content': 'from __future__ import annotations\\n...', 'total_lines': 115}
 
-  🔧 Generator 第 3 步
-  🛠️  Generator 选择工具: update_task_conclusion
-  🛠️  参数: {'conclusion': '当前目录中识别出一个模块化的 miniMaster 项目，核心结构包含 app、prompting、runtime 和 tools 四个主要子系统。main_agent.py 只保留入口职责，真正的编排逻辑位于 app/orchestration.py，工具系统由 tools/core/ToolService 统一管理。'}
-  📝 Generator 完成任务，结论: 当前目录中识别出一个模块化的 miniMaster 项目，核心结构包含 app、prompting、runtime 和 tools 四个主要子系统。main_agent.py 只保留入口职责，真正的编排逻辑位于 app/orchestration.py，工具系统由 tools/core/ToolService 统一管理。
+  🛠️ Executor-Agent 选择工具: update_task_conclusion
+  🛠️ 参数: {'conclusion': 'memory 目录在运行时被直接使用，并参与 Planner、Executor、Validator 的上下文组织。'}
 ```
 validate-agent
 ```log
-    🔍 Validate-Agent 第 1 步
-    🛠️  Validate-Agent 选择工具: read
-    🛠️  参数: {'file_path': 'app/orchestration.py'}
-    ✅ 验证工具执行结果: {'success': True, 'content': 'from copy import deepcopy\n...\ndef run_main_loop(runtime: AgentRuntime, max_iter: int = 30):\n...', 'total_lines': 257}
+    🛠️ Validator-Agent 选择工具: grep
+    🛠️ 参数: {'pattern': 'from memory.prompt_context import', 'path': 'engine/validator.py', 'recursive': False}
+    ✅ 验证工具执行结果: {'success': True, 'matches': [{'file': 'engine\\validator.py', 'line_number': 18, 'line_content': 'from memory.prompt_context import build_validator_prompt_context', 'matched_text': 'from memory.prompt_context import'}]}
 
-    🔍 Validate-Agent 第 2 步
-    🛠️  Validate-Agent 选择工具: validate_tool
-    🛠️  参数: {'status': '有效', 'reason': 'glob 与 read 的现有证据已经覆盖目录结构与主编排入口，结论与任务要求一致。'}
-    📊 验证结果: 有效, 原因: glob 与 read 的现有证据已经覆盖目录结构与主编排入口，结论与任务要求一致。
+    🛠️ Validator-Agent 选择工具: validate_tool
+    🛠️ 参数: {'status': '有效', 'reason': '现有证据已完整覆盖所有完成项：validator 通过 build_validator_prompt_context 获取验证所需的 memory 上下文。', 'covered_requirements': ['能够说明 validator 是否使用 memory 数据及其使用方式', '验证器与 memory 关联分析报告'], 'missing_requirements': []}
     ✅ 验证通过！
 ```
 
-最终生成的项目报告：[生成的结果](code/miniMaster2.0/use_case/case1/项目报告.md)
+最终生成的分析结果：[生成的结果](code/miniMaster2.0/use_case/case3/res.md)
 
 ### 完整日志
 
-[查看完整执行日志](code/miniMaster2.0/use_case/case1/log.txt)
+[查看完整执行日志](code/miniMaster2.0/use_case/case3/log.txt)
 
 ### 代码结构
 
-```
+```text
 code/miniMaster2.0/
-├── app/
-│   ├── bootstrap.py        # 入口初始化，装配 runtime
-│   ├── agent_runner.py     # 模型调用与 function call 解析入口
-│   ├── agent_config.py     # 各阶段共享配置与静态上下文
-│   ├── orchestration.py    # Plan / Generator / Validate 主编排逻辑
-│   └── loop_control.py     # 缓存与重复动作防护
-├── prompting/
-│   ├── builders.py         # Prompt 构造函数
-│   ├── policies.py         # 不同 Agent 的动作策略
-│   └── protocol.py         # 原生 function call 协议适配
-├── runtime/
-│   ├── todo.py             # 任务状态管理
-│   └── memory.py           # 动态工作记忆管理
+├── bootstrap/
+│   ├── runtime.py          # 启动装配：LLM client、ToolService、memory、skill store
+│   └── stage_context.py    # 统一构造 system prompt、动作集合与 tool schema
+├── domain/
+│   ├── todo.py             # 任务列表与任务卡片管理
+│   ├── task_requirements.py# 把 done_when / deliverable 归一成 completion checklist
+│   ├── state_machine.py    # 受控任务状态迁移
+│   └── types.py            # Task、AgentRuntime、MemoryEntry 等核心数据结构
+├── engine/
+│   ├── main_loop.py        # 顶层 Planner 主循环
+│   ├── plan_actions.py     # init_tasks / split_task / retry_task / subagent_tool 处理
+│   ├── runner.py           # Executor 执行与任务重试
+│   ├── validator.py        # Validator 独立验证循环
+│   ├── guards.py           # 重复动作防护
+│   └── support.py          # 日志、反馈与运行时工具辅助
+├── llm/
+│   ├── runner.py           # 模型请求入口与 function call 解析
+│   └── prompting/
+│       ├── builders.py     # Plan / Executor / Validator Prompt 构造
+│       ├── policies.py     # 三个角色的动作白名单
+│       └── protocol.py     # function call 协议适配
+├── memory/
+│   ├── prompt_context.py   # 按角色整理 prompt 所需的 memory 视图
+│   ├── session.py          # session memory 与 retry archive 管理
+│   └── working_memory.py   # 工作记忆记录、裁剪、压缩与渲染
+├── skills/
+│   ├── store.py            # skill 包解析与加载
+│   ├── types.py            # Skill 数据结构
+│   ├── library/            # 示例 skills
+│   └── scripts/            # skill 相关脚本
 ├── tools/
 │   ├── base_tool/          # 基础系统工具
 │   ├── search_tool/        # 搜索检索工具
-│   └── core/               # 工具注册、发现与执行服务
+│   └── core/               # ToolContext、ToolSpec、ToolService
+├── use_case/               # 运行案例、日志与结果
+├── utils/                  # 控制台日志等辅助模块
 ├── main_agent.py           # 程序入口
-└── requirements.txt        # 依赖包列表
+└── requirements.txt        # 依赖列表
 ```
 
 ## 贡献者名单
