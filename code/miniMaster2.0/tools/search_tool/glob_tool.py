@@ -3,7 +3,8 @@
 import glob as glob_module
 import os
 
-from tools.core import BaseTool, ToolResult, ToolSpec
+from tools.core.base import BaseTool
+from tools.core.types import ToolResult, ToolSpec
 
 
 class GlobTool(BaseTool):

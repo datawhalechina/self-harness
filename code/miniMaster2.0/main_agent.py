@@ -1,5 +1,5 @@
-from app.bootstrap import bootstrap_runtime
-from app.orchestration import run_main_loop
+from bootstrap.runtime import bootstrap_runtime
+from engine.main_loop import run_main_loop
 
 
 def main():
