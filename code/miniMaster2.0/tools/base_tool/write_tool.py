@@ -53,6 +53,7 @@ class WriteTool(BaseTool):
             # 为新文件自动创建父目录，避免调用方额外执行 mkdir。
             os.makedirs(directory, exist_ok=True)
 
+        # create 最终也会落到 `w`，差别在于前面已经做了“文件存在即报错”的保护。
         file_mode = "a" if mode == "append" else "w"
         with open(resolved_path, file_mode, encoding="utf-8") as file_obj:
             file_obj.write(content)

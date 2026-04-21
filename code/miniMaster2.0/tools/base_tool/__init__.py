@@ -1,1 +1,8 @@
-"""Base tool package marker."""
+"""基础工具集合。
+
+这里放的是最直接作用于文件系统和命令行的工具：
+- `bash`
+- `read`
+- `write`
+- `edit`
+"""

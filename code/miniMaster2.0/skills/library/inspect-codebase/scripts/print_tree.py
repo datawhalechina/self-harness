@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Print a shallow directory tree for quick repository inspection."""
+"""打印浅层目录树，帮助快速盘点代码库边界。"""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from pathlib import Path
 
 
 def _should_skip(path: Path) -> bool:
+    """过滤掉教学里通常不值得优先看的噪声目录和缓存文件。"""
     name = path.name
     if name == "__pycache__":
         return True
@@ -21,6 +22,7 @@ def _should_skip(path: Path) -> bool:
 
 
 def _walk(current_path: Path, current_depth: int, max_depth: int):
+    """递归打印目录树。"""
     if current_depth > max_depth:
         return
 
@@ -69,6 +71,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 
 
 def main():
+    """脚本入口。"""
     args = parse_args(sys.argv[1:])
     root_arg = args.root
     max_depth = args.depth if args.depth is not None else args.legacy_depth

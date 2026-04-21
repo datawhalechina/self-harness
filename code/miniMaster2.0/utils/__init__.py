@@ -1,1 +1,4 @@
-"""Utility helpers package."""
+"""辅助工具包。
+
+当前主要提供控制台日志相关帮助函数，供 engine/llm 复用。
+"""

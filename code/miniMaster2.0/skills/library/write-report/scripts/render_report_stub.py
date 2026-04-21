@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate a simple Markdown report outline from a title and sections."""
+"""根据标题和章节名生成一个简单的 Markdown 报告骨架。"""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from pathlib import Path
 
 
 def build_outline(title: str, sections: list[str]) -> str:
+    """把标题和章节列表渲染成 Markdown 模板。"""
     lines = [f"# {title}", ""]
     for section in sections:
         normalized = section.strip()
@@ -22,6 +23,7 @@ def build_outline(title: str, sections: list[str]) -> str:
 
 
 def main():
+    """脚本入口。"""
     if len(sys.argv) < 3:
         raise SystemExit(
             "Usage: python scripts/render_report_stub.py <output_path> <title> [section1] [section2] ..."

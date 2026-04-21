@@ -1,1 +1,13 @@
-"""Engine package marker."""
+"""流程编排层。
+
+这一层负责把底层能力串成真正可运行的 Agent 循环，包括：
+- Planner 主循环
+- Planner 控制动作处理
+- Executor 执行与重试
+- Validator 独立验证
+- 重复动作防护
+- 运行时辅助函数
+
+如果说 domain 层回答“系统里有什么对象”，那么 engine 层回答的是
+“这些对象如何按规则流动起来”。
+"""

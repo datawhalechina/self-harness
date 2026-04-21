@@ -33,15 +33,19 @@ class ToolService:
         tool_classes: tuple[type[BaseTool], ...],
         context: ToolContext,
     ):
+        # 这里用工具名做键，是为了让上层可以按动作名直接取工具，无需再维护映射表。
         self._tool_classes = {tool_class.spec.name: tool_class for tool_class in tool_classes}
         self.context = context
 
     @classmethod
     def bootstrap(cls, workspace: Optional[str] = None) -> "ToolService":
         """按固定内置工具集完成装配。"""
+        # 如果调用方没显式传 workspace，就以当前进程目录为准。
         default_workspace = workspace or os.getcwd()
         context = ToolContext(
+            # 后续所有工具的相对路径都会以这里为基准。
             workspace=default_workspace,
+            # system_name 供 Prompt 和某些工具内部差异化分支使用。
             system_name=platform.system(),
         )
         return cls(tool_classes=BUILTIN_TOOLS, context=context)
@@ -54,8 +58,10 @@ class ToolService:
             return {"success": False, "error": f"未知工具: '{name}'"}
 
         try:
+            # 所有真实执行都会经过具体工具实例的 `execute()` 标准流程。
             return tool.execute(params)
         except Exception as exc:
+            # 这里故意兜成结构化 error，而不是让异常一路炸到模型循环。
             return {"success": False, "error": f"工具执行失败: {str(exc)}"}
 
     def render_prompt(self, category: Optional[str] = None) -> str:
@@ -73,6 +79,7 @@ class ToolService:
         if tool_class is None:
             raise KeyError(name)
 
+        # 每次取用都重新实例化一个工具，避免工具对象之间共享可变状态。
         return tool_class(context=self.context)
 
     def get_tool_spec(self, name: str) -> Optional[ToolSpec]:

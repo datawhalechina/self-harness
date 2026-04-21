@@ -49,6 +49,7 @@ class ReadTool(BaseTool):
         if not os.path.isfile(resolved_path):
             return ToolResult(success=False, data={"content": ""}, error=f"Not a file: {file_path}")
 
+        # 先知道总行数，后面才能稳定返回“这一段读到了哪里、后面还有没有”。
         total_lines = self._count_lines(resolved_path)
 
         if total_lines == 0:

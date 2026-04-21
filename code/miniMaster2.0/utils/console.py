@@ -1,3 +1,13 @@
+"""控制台日志工具。
+
+这些函数和类不参与业务决策，但它们决定了运行过程是否“可观察”。
+对教学项目来说，可观察性非常重要，因为读者需要看清楚：
+- 每个 Agent 当前在第几步
+- 选了什么动作
+- 工具返回了什么
+- 为什么重试或失败
+"""
+
 from __future__ import annotations
 
 from domain.types import AgentAction, Task
@@ -181,14 +191,17 @@ class ConsoleLogger:
     """
 
     def stage_header(self, title: str, width: int = 60, line_char: str = "="):
+        """打印阶段标题分隔线。"""
         print(f"\n{line_char * width}")
         print(title)
         print(f"{line_char * width}")
 
     def agent_iteration(self, agent_name: str, iteration: int):
+        """打印 Planner 级别的轮次标题。"""
         self.stage_header(f"🔄 {agent_name} 第 {iteration} 次迭代")
 
     def agent_step(self, agent_name: str, step: int, icon: str, indent: str = ""):
+        """打印单步执行标题。"""
         print(f"\n{indent}{icon} {agent_name} 第 {step} 步")
 
     def agent_tool_selection(
@@ -199,6 +212,7 @@ class ConsoleLogger:
         icon: str,
         indent: str = "",
     ):
+        """打印 Agent 本轮选择的动作及参数。"""
         print(f"{indent}{icon} {agent_name} 选择工具: {tool_name}")
         print(f"{indent}{icon} 参数: {parameters}")
 
@@ -265,6 +279,7 @@ class ConsoleLogger:
         print_task_snapshot(tasks, title=title)
 
     def task_report(self, tasks: list[Task], title: str):
+        """打印任务终态报告。"""
         print(f"\n=== {title} ===")
         for task in tasks:
             print_task_card(task)

@@ -9,7 +9,11 @@ from tools.core.types import ToolSpec
 
 
 def _action(name: str, description: str, schema: dict[str, Any] | None = None) -> ToolSpec:
-    """把 Agent 动作定义统一成 ToolSpec。"""
+    """把 Agent 动作定义统一成 ToolSpec。
+
+    这样“控制动作”和“真实工具”都能复用同一种结构描述，便于后续统一渲染成
+    Prompt 文本和 OpenAI tools schema。
+    """
     return ToolSpec(
         name=name,
         description=description,
@@ -26,6 +30,7 @@ def _display_schema(spec: ToolSpec) -> dict[str, Any] | None:
 
 
 PLAN_ACTIONS: tuple[ToolSpec, ...] = (
+    # Planner 允许少量只读侦察，但真正修改文件的动作不在这里开放。
     _action("read", "只读读取文件内容，用于规划前侦察"),
     _action("glob", "只读查找文件和目录，用于规划前侦察"),
     _action("grep", "只读搜索文本内容，用于规划前侦察"),
@@ -139,6 +144,7 @@ PLAN_ACTIONS: tuple[ToolSpec, ...] = (
 )
 
 EXECUTOR_ACTIONS: tuple[ToolSpec, ...] = (
+    # Executor 拿到的是“完成任务”的职责，因此既能读、搜，也能改文件和提交结论。
     _action("bash", "执行 shell 命令"),
     _action("read", "读取文件内容"),
     _action("write", "写入文件内容"),
@@ -159,6 +165,7 @@ EXECUTOR_ACTIONS: tuple[ToolSpec, ...] = (
 )
 
 VALIDATOR_ACTIONS: tuple[ToolSpec, ...] = (
+    # Validator 只允许验证型只读操作和最终 validate_tool，不允许 write/edit。
     _action("bash", "执行 shell 命令"),
     _action("read", "读取文件内容"),
     _action("glob", "按模式查找文件"),

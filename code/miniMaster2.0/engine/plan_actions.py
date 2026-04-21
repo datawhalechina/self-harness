@@ -1,3 +1,11 @@
+"""处理 Planner 返回的控制动作。
+
+Planner 负责“想”，但真正的任务列表修改、任务执行触发和用户回复，
+都由本地代码在这里落地。这样做的好处是：
+- 模型可以提出控制意图；
+- 但真正的状态修改仍由确定性代码把关。
+"""
+
 from __future__ import annotations
 
 from domain.types import AgentAction, AgentRuntime, Task, TERMINAL_TASK_STATUSES
@@ -7,20 +15,29 @@ from memory.session import SessionMemoryManager
 
 
 def _get_task_name(task_item: object) -> str:
+    """从字符串或对象任务里提取并清洗 task_name。"""
     if isinstance(task_item, dict):
         return " ".join(str(task_item.get("task_name", "")).split()).strip()
     return " ".join(str(task_item or "").split()).strip()
 
 
 def _normalize_text_field(task_item: dict, field_name: str) -> str:
+    """统一压缩任务文本字段里的多余空白。"""
     return " ".join(str(task_item.get(field_name, "")).split()).strip()
 
 
 def _normalize_init_tasks(task_list: list) -> list[dict]:
-    """对 Planner 输出做最小必要清洗，不再注入隐式任务。"""
+    """对 Planner 输出做最小必要清洗，不再注入隐式任务。
+
+    这个函数只做“收口格式”的工作，不偷偷补全业务含义。
+    这样便于教学时区分：
+    - 哪些内容来自模型的明确决策；
+    - 哪些内容只是本地代码做的格式规范化。
+    """
     normalized_tasks: list[dict] = []
 
     for item in task_list:
+        # 如果 Planner 只给了字符串任务名，就先包成统一对象结构。
         normalized_item = {"task_name": _get_task_name(item)} if not isinstance(item, dict) else dict(item)
         task_name = _get_task_name(normalized_item)
         if not task_name:
@@ -40,6 +57,7 @@ def _normalize_init_tasks(task_list: list) -> list[dict]:
 
 
 def _build_single_task_payload(plan_params: dict) -> dict:
+    """把 add_task 动作参数整理成和 init_tasks 同构的任务对象。"""
     return {
         "task_name": plan_params.get("task_name", ""),
         "goal": str(plan_params.get("goal", "")).strip(),
@@ -50,7 +68,14 @@ def _build_single_task_payload(plan_params: dict) -> dict:
 
 
 def _select_next_task(tasks: list[Task]) -> Task | None:
-    """按最直观的状态顺序选择下一个任务。"""
+    """按最直观的状态顺序选择下一个任务。
+
+    当前调度策略非常简单：
+    - 如果有 RUNNING，优先续跑它；
+    - 否则取第一个 PENDING。
+
+    这也提醒读者：miniMaster 的重点在 harness 结构，而不是复杂调度算法。
+    """
     running_tasks = [task for task in tasks if task.task_status == "RUNNING"]
     if running_tasks:
         return running_tasks[0]
@@ -66,6 +91,7 @@ def _select_requested_or_next_task(tasks: list[Task], requested_task_name: str) 
         for task in tasks:
             if task.task_name != normalized_requested:
                 continue
+            # Planner 指定了任务名时，只接受仍可执行的 PENDING/RUNNING 任务。
             if task.task_status in {"PENDING", "RUNNING"}:
                 return task
             return None
@@ -78,16 +104,26 @@ def handle_plan_action(
     stage_context: dict,
     session_memory: SessionMemoryManager,
 ) -> bool:
-    """处理一次 Plan-Agent 返回的控制动作。"""
+    """处理一次 Plan-Agent 返回的控制动作。
+
+    返回值语义：
+    - `True`: 顶层主循环应停止（典型场景是 `respond_to_user`）
+    - `False`: 主循环继续
+    """
+    # 模型选择了哪个控制动作。
     plan_tool = action.tool
+    # 该动作附带的参数。
     plan_params = action.parameters
 
+    # 只要还有任何任务不在终态，就视为“存在未完成任务”。
     has_unfinished_tasks = any(task.task_status not in TERMINAL_TASK_STATUSES for task in runtime.todo_list.get_all_tasks())
     if plan_tool == "init_tasks" and has_unfinished_tasks:
+        # 有未完成任务时重新 init_tasks 很危险，会把已有调度上下文冲掉，因此本地直接拦截。
         LOGGER.warning("当前已有未完成任务，已在本地拦截重复 init_tasks。")
         return False
 
     if plan_tool == "init_tasks":
+        # init_tasks 会整体初始化一版任务草案。
         task_list = plan_params.get("tasks", [])
         normalized_tasks = _normalize_init_tasks(task_list)
         runtime.todo_list.init_tasks(normalized_tasks)
@@ -95,6 +131,7 @@ def handle_plan_action(
         return False
 
     if plan_tool == "add_task":
+        # add_task 只处理单个新任务，因此先转成与 init_tasks 相同的 payload 结构。
         task_payload = _build_single_task_payload(plan_params)
         task_name = task_payload["task_name"]
         if task_name:
@@ -106,6 +143,7 @@ def handle_plan_action(
                 return False
 
             for normalized_task in normalized_tasks:
+                # add_task 不是 replace 语义，所以同名任务会被静默忽略而不是覆盖。
                 existing_task = runtime.todo_list.get_task_by_name(normalized_task["task_name"])
                 if existing_task is not None:
                     continue
@@ -120,6 +158,7 @@ def handle_plan_action(
         return False
 
     if plan_tool == "retry_task":
+        # retry_task 的本地校验重点是：任务必须存在、当前必须在 FAILED/BLOCKED、且必须给出恢复原因。
         task_name = str(plan_params.get("task_name", "")).strip()
         reason = str(plan_params.get("reason", "")).strip()
         task = runtime.todo_list.get_task_by_name(task_name)
@@ -139,6 +178,7 @@ def handle_plan_action(
         return False
 
     if plan_tool == "split_task":
+        # split_task 会用一组新子任务替换原任务。
         target_task_name = str(plan_params.get("target_task_name", "")).strip()
         reason = str(plan_params.get("reason", "")).strip()
         subtasks = plan_params.get("subtasks", [])
@@ -157,12 +197,14 @@ def handle_plan_action(
             LOGGER.warning(f"任务 '{target_task_name}' 拆分时必须提供 reason。")
             return False
 
+        # 子任务先做格式归一化，再进入冲突检查。
         normalized_subtasks = _normalize_init_tasks(subtasks)
         if not normalized_subtasks:
             LOGGER.warning(f"任务 '{target_task_name}' 的子任务列表为空，已忽略拆分。")
             return False
 
         for subtask in normalized_subtasks:
+            # 子任务名如果跟父任务完全相同，等于没有真正拆开。
             if subtask["task_name"] == target_task_name:
                 LOGGER.warning("split_task 生成的子任务名不能与原任务名完全相同。")
                 return False
@@ -174,6 +216,7 @@ def handle_plan_action(
             )
             return False
 
+        # 旧任务已经不存在，它积累的 retry 归档也应该一并删除。
         runtime.retry_archive_by_task.pop(target_task_name, None)
         LOGGER.success(f"已将任务 '{target_task_name}' 拆分为 {len(normalized_subtasks)} 个子任务。")
         LOGGER.info(f"拆分原因: {reason}")
@@ -182,12 +225,14 @@ def handle_plan_action(
         return False
 
     if plan_tool == "respond_to_user":
+        # 这一动作意味着 Planner 认为不需要再进入任务流。
         message = plan_params.get("message", "")
         if message:
             LOGGER.user_message(message)
         return True
 
     if plan_tool == "subagent_tool":
+        # Planner 可以明确指定要执行哪个任务，也可以把选择权交给默认 scheduler。
         requested_task_name = str(plan_params.get("task_name", "")).strip()
         scheduled_task = _select_requested_or_next_task(runtime.todo_list.get_all_tasks(), requested_task_name)
         if scheduled_task is None:
@@ -207,6 +252,7 @@ def handle_plan_action(
             LOGGER.warning(
                 f"Planner 请求执行 '{requested_task_name}'，但 scheduler 选择了 '{scheduled_task.task_name}'。"
             )
+        # 真正的执行工作会转入 runner 层，再由它串起 Generator + Validator。
         run_task(runtime, scheduled_task.task_name, stage_context, session_memory)
         return False
 

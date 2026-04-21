@@ -1,3 +1,9 @@
+"""模型调用入口。
+
+这个模块把“请求模型 + 解析 function call + 统一报错”这套流程封装起来，
+让上层 engine 只关心“拿到一个 AgentAction”，而不必关心 OpenAI SDK 细节。
+"""
+
 from openai import APITimeoutError, BadRequestError, OpenAI
 from langsmith import traceable
 
@@ -9,7 +15,11 @@ LOGGER = ConsoleLogger()
 
 
 def _should_retry_with_auto_tool_choice(exc: BadRequestError) -> bool:
-    """判断当前报错是否适合从 required 降级到 auto 后重试。"""
+    """判断当前报错是否适合从 required 降级到 auto 后重试。
+
+    某些模型/模式下，`tool_choice="required"` 可能与服务端约束冲突。
+    这里做一次有条件降级，是为了提升示例代码在不同后端上的兼容性。
+    """
     error_message = str(exc).lower()
     return (
         "tool_choice" in error_message
@@ -50,6 +60,7 @@ def call_agent_function(
         if not _should_retry_with_auto_tool_choice(exc):
             raise
 
+        # 降级并不代表放弃工具调用，只是允许模型在该后端约束下自行决定具体 tool choice。
         response = client.chat.completions.create(
             **request_kwargs,
             tool_choice="auto",
@@ -77,6 +88,7 @@ def request_agent_action(
         raise TimeoutError(f"{agent_name} 请求模型超时（{timeout_seconds} 秒）") from exc
     LOGGER.model_response(agent_name, indent=log_indent)
     try:
+        # decode 阶段会再次做动作合法性校验，避免把原始模型输出直接当真。
         return decode_agent_tool_call(message, actions)
     except ValueError as exc:
         raise ValueError(f"{agent_name} function call 解析失败: {exc}") from exc

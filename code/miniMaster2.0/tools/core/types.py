@@ -6,7 +6,10 @@ from typing import Any, Dict, Optional
 
 @dataclass(frozen=True)
 class ToolSpec:
-    """描述工具静态元信息。"""
+    """描述工具静态元信息。
+
+    它回答的是“这个工具叫什么、做什么、属于哪类、需要什么输入”。
+    """
 
     name: str
     description: str
@@ -16,7 +19,10 @@ class ToolSpec:
 
 @dataclass
 class ToolContext:
-    """描述工具实例共享的运行时上下文。"""
+    """描述工具实例共享的运行时上下文。
+
+    所有工具都共享同一个 workspace 和 system_name，确保它们对执行环境的理解一致。
+    """
 
     workspace: str = "."
     system_name: str = ""

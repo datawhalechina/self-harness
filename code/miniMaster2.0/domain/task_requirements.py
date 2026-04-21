@@ -1,3 +1,10 @@
+"""把任务完成条件归一化成 checklist。
+
+很多任务会同时包含 `done_when` 和 `deliverable`，而且用户或 Planner 写出来的形式
+并不总是规整的列表。这个模块的作用就是把这些自然语言描述尽量拆成若干可核对项，
+方便 Validator 逐条判断“哪些已覆盖、哪些还缺证据”。
+"""
+
 from __future__ import annotations
 
 import re
@@ -13,10 +20,19 @@ _LEADING_LIST_MARKER_PATTERN = re.compile(
 
 
 def _normalize_text(text: str) -> str:
+    """压缩多余空白，便于去重和比较。"""
     return " ".join(str(text or "").split()).strip()
 
 
 def _split_requirement_text(text: str) -> list[str]:
+    """尽量从自然语言要求中切出更细的完成项。
+
+    它会依次处理：
+    - 多行文本
+    - 行首列表符号
+    - 行内序号
+    - 过长逗号串联句子的再次拆分
+    """
     normalized = str(text or "").replace("\r\n", "\n").replace("\r", "\n").strip()
     if not normalized:
         return []
@@ -60,6 +76,7 @@ def build_completion_checklist(task: Task | None) -> list[str]:
 
     checklist: list[str] = []
     seen: set[str] = set()
+    # 顺序很重要：优先保留写在前面的要求，让 checklist 更接近原始任务意图。
     for candidate in ordered_candidates:
         normalized_candidate = _normalize_text(candidate)
         if not normalized_candidate or normalized_candidate in seen:
@@ -74,6 +91,7 @@ def build_completion_checklist(task: Task | None) -> list[str]:
 
 
 def render_completion_checklist(task: Task | None) -> str:
+    """把 checklist 渲染成可直接塞进 Prompt 的 bullet 文本。"""
     checklist = build_completion_checklist(task)
     if not checklist:
         return "当前任务没有可拆分的完成清单；请直接以 task.done_when 和 deliverable 为准。"

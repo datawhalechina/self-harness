@@ -43,14 +43,27 @@ class GrepTool(BaseTool):
     )
 
     def run(self, tool_input: dict) -> ToolResult:
-        """搜索文本模式；若可用，优先走 rg 后端以复用 ignore 规则。"""
+        """搜索文本模式；若可用，优先走 rg 后端以复用 ignore 规则。
+
+        设计成“两级后端”是这个工具最关键的教学点：
+        - 有 rg 时：优先获得更快速度和更接近开发者习惯的 ignore 语义
+        - 没 rg 时：仍能用 Python 保底，保证项目可运行
+        """
+        # 正则模式本身。
         pattern = str(tool_input["pattern"])
+        # 搜索起点；默认是当前 workspace。
         path = str(tool_input.get("path", "."))
+        # 可选的文件名过滤条件，例如 `*.py`。
         include_pattern = tool_input.get("include_pattern")
+        # 是否区分大小写。
         case_sensitive = tool_input.get("case_sensitive", False)
+        # 是否递归搜索子目录。
         recursive = tool_input.get("recursive", True)
+        # 最多返回多少条命中。
         max_results = int(tool_input.get("max_results", 40))
+        # Python 回退实现里按多少行一个块去扫描。
         chunk_size = int(tool_input.get("chunk_size", self.DEFAULT_CHUNK_SIZE))
+        # 把相对路径解析成稳定绝对路径。
         resolved_path = self.resolve_path(path)
 
         if max_results <= 0:
@@ -67,6 +80,7 @@ class GrepTool(BaseTool):
                 error="chunk_size must be greater than 0",
             )
 
+        # 优先尝试 rg 后端。
         rg_result = self._run_with_ripgrep(
             pattern=pattern,
             resolved_path=resolved_path,
@@ -78,6 +92,7 @@ class GrepTool(BaseTool):
         if rg_result is not None:
             return rg_result
 
+        # rg 不可用时，走纯 Python 保底实现。
         return self._run_with_python(
             pattern=pattern,
             path=path,
@@ -100,6 +115,7 @@ class GrepTool(BaseTool):
         max_results: int,
     ) -> ToolResult | None:
         """若 rg 可用，则优先用它执行搜索并继承 ignore 规则。"""
+        # 只有系统里真的安装了 rg，才能走高性能后端。
         rg_path = shutil.which("rg")
         if not rg_path:
             return None
@@ -111,6 +127,7 @@ class GrepTool(BaseTool):
                 error=f"Path not found: {path}",
             )
 
+        # `--json` 让我们能够稳定解析结构化输出，而不是依赖文本 grep 格式。
         command = [
             rg_path,
             "--json",
@@ -121,11 +138,14 @@ class GrepTool(BaseTool):
         command.append("--case-sensitive" if case_sensitive else "--ignore-case")
 
         if include_pattern:
+            # rg 的 `--glob` 用于做文件名筛选。
             command.extend(["--glob", str(include_pattern)])
 
         if not recursive and os.path.isdir(resolved_path):
+            # 非递归目录搜索时，把最大深度限制到 1。
             command.extend(["--max-depth", "1"])
 
+        # 先追加正则模式，再追加目标路径。
         command.append(pattern)
         command.append(self._build_search_target(resolved_path))
 
@@ -139,10 +159,10 @@ class GrepTool(BaseTool):
             errors="replace",
         )
 
-        matches = []
-        files_started = 0
-        summary_searches = None
-        terminated_early = False
+        matches = []  # 累积的统一命中结果。
+        files_started = 0  # rg 告知已经开始搜索了多少文件。
+        summary_searches = None  # 结束时 summary 里给出的搜索文件数。
+        terminated_early = False  # 是否因为达到 max_results 而主动提前终止。
 
         try:
             assert process.stdout is not None
@@ -154,20 +174,24 @@ class GrepTool(BaseTool):
                 try:
                     payload = json.loads(line)
                 except json.JSONDecodeError:
+                    # 万一出现异常行，直接跳过，不让整次搜索失败。
                     continue
 
                 message_type = payload.get("type")
                 data = payload.get("data", {})
 
                 if message_type == "begin":
+                    # begin 事件表示 rg 开始处理一个新文件。
                     files_started += 1
                     continue
 
                 if message_type == "summary":
+                    # summary 事件通常出现在尾部，包含统计信息。
                     summary_searches = data.get("stats", {}).get("searches")
                     continue
 
                 if message_type != "match":
+                    # 这里只关心真正的 match 事件，其他事件全部忽略。
                     continue
 
                 file_path = self._extract_rg_text(data.get("path"))
@@ -175,6 +199,7 @@ class GrepTool(BaseTool):
                 line_content = self._extract_rg_text(data.get("lines")).rstrip("\n\r")
                 submatches = data.get("submatches", [])
 
+                # rg 的一条 match 里可能包含多个子命中，因此这里继续展开成多条统一记录。
                 for submatch in submatches:
                     matches.append(
                         {
@@ -185,6 +210,7 @@ class GrepTool(BaseTool):
                         }
                     )
                     if len(matches) >= max_results:
+                        # 达到上限就主动 kill 进程，避免继续浪费搜索时间。
                         terminated_early = True
                         process.kill()
                         break
@@ -192,6 +218,7 @@ class GrepTool(BaseTool):
                 if terminated_early:
                     break
         finally:
+            # `communicate()` 用来收尾并拿到 stderr，同时尽量补抓 summary。
             stdout_tail, stderr_output = process.communicate()
             if stdout_tail and summary_searches is None:
                 for raw_line in stdout_tail.splitlines():
@@ -203,6 +230,7 @@ class GrepTool(BaseTool):
                         summary_searches = payload.get("data", {}).get("stats", {}).get("searches")
                         break
 
+        # rg 返回码 0 表示有命中，1 表示没命中，这两种都不算失败。
         returncode = process.returncode
         if not terminated_early and returncode not in (0, 1):
             return ToolResult(
@@ -211,6 +239,7 @@ class GrepTool(BaseTool):
                 error=self._normalize_rg_error(stderr_output, pattern),
             )
 
+        # 如果拿到了 summary 统计就优先用它，否则退回 begin 事件计数。
         files_searched = summary_searches if isinstance(summary_searches, int) else files_started
         return ToolResult(
             success=True,
@@ -231,6 +260,7 @@ class GrepTool(BaseTool):
     ) -> ToolResult:
         """当 rg 不可用时，回退到 Python 搜索，并尽量跳过 ignore 路径。"""
         try:
+            # Python 回退实现会自己编译正则。
             flags = 0 if case_sensitive else re.IGNORECASE
             compiled_pattern = re.compile(pattern, flags)
         except re.error as exc:
@@ -240,12 +270,14 @@ class GrepTool(BaseTool):
                 error=f"Invalid regex: {exc}",
             )
 
-        matches = []
-        files_searched = 0
+        matches = []  # 收集命中结果。
+        files_searched = 0  # 实际扫描过的文件数。
 
         if os.path.isfile(resolved_path):
+            # 指向单个文件时，待搜索文件集就只有它自己。
             files_to_search = [resolved_path]
         elif os.path.isdir(resolved_path):
+            # 指向目录时，需要先根据 ignore 规则和 include_pattern 收集文件。
             files_to_search = self._collect_files(resolved_path, include_pattern, recursive)
         else:
             return ToolResult(
@@ -258,6 +290,7 @@ class GrepTool(BaseTool):
             if len(matches) >= max_results:
                 break
             try:
+                # 仍按 chunk 逐段扫，避免大文件一次性全读进内存。
                 total_lines = self._count_lines(file_path)
                 if total_lines == 0:
                     files_searched += 1
@@ -281,8 +314,10 @@ class GrepTool(BaseTool):
                             break
                     if len(matches) >= max_results:
                         break
+                # 只有完整走过该文件后，才把 files_searched +1。
                 files_searched += 1
             except (PermissionError, IOError):
+                # 某些文件可能无权限或读取失败，跳过即可。
                 continue
 
         return ToolResult(
@@ -296,6 +331,7 @@ class GrepTool(BaseTool):
         files = []
         if recursive:
             for root, dirnames, filenames in os.walk(directory):
+                # 先原地过滤子目录，避免继续深入被忽略的路径。
                 dirnames[:] = [
                     dirname
                     for dirname in dirnames
@@ -311,6 +347,7 @@ class GrepTool(BaseTool):
             return files
 
         for item in os.listdir(directory):
+            # 非递归时只看当前目录这一层。
             item_path = os.path.join(directory, item)
             if self._should_ignore_path(item_path, is_dir=os.path.isdir(item_path), ignore_rules=ignore_rules):
                 continue
@@ -337,6 +374,7 @@ class GrepTool(BaseTool):
                 yield line_number, line
 
     def _build_search_target(self, resolved_path: str) -> str:
+        """尽量把搜索目标转成相对 workspace 的路径，方便 rg 继承 ignore 规则。"""
         workspace = os.path.abspath(self.context.workspace or os.getcwd())
         absolute_target = os.path.abspath(resolved_path)
         try:
@@ -351,6 +389,7 @@ class GrepTool(BaseTool):
         return "." if relative_target == "." else relative_target
 
     def _resolve_match_path(self, match_path: str) -> str:
+        """把 rg 返回的路径恢复成稳定绝对路径。"""
         if not match_path:
             return self.context.workspace or os.getcwd()
         if os.path.isabs(match_path):
@@ -358,6 +397,7 @@ class GrepTool(BaseTool):
         return os.path.abspath(os.path.join(self.context.workspace or os.getcwd(), match_path))
 
     def _extract_rg_text(self, value) -> str:
+        """从 rg JSON 输出里提取 text/bytes 字段。"""
         if isinstance(value, dict):
             if "text" in value:
                 return str(value["text"])
@@ -369,12 +409,14 @@ class GrepTool(BaseTool):
         return str(value or "")
 
     def _normalize_rg_error(self, stderr_output: str, pattern: str) -> str:
+        """统一格式化 rg 后端错误。"""
         error_text = " ".join(str(stderr_output or "").split()).strip()
         if error_text:
             return f"rg search failed: {error_text}"
         return f"rg search failed for pattern: {pattern}"
 
     def _load_ignore_rules(self) -> list[str]:
+        """从 workspace 根目录读取简单 ignore 规则。"""
         workspace = self.context.workspace or os.getcwd()
         rules: list[str] = []
         for ignore_file_name in self.IGNORE_FILE_NAMES:
@@ -393,6 +435,7 @@ class GrepTool(BaseTool):
         return rules
 
     def _should_ignore_path(self, path: str, *, is_dir: bool, ignore_rules: list[str]) -> bool:
+        """判断路径是否应该在 Python 回退搜索里被忽略。"""
         workspace = os.path.abspath(self.context.workspace or os.getcwd())
         absolute_path = os.path.abspath(path)
         try:
@@ -405,9 +448,11 @@ class GrepTool(BaseTool):
             return False
 
         parts = [part for part in normalized.split("/") if part]
+        # 隐藏路径默认直接忽略，和大多数代码搜索习惯一致。
         if any(part.startswith(".") for part in parts):
             return True
 
+        # ignore 规则会按顺序覆盖，后面的规则可以翻转前面的结果。
         ignored = False
         for rule in ignore_rules:
             is_negated = rule.startswith("!")
@@ -417,6 +462,7 @@ class GrepTool(BaseTool):
         return ignored
 
     def _matches_ignore_rule(self, normalized_path: str, parts: list[str], pattern: str, is_dir: bool) -> bool:
+        """实现一组足够支撑教学示例的 ignore 规则匹配。"""
         normalized_pattern = pattern.replace("\\", "/").strip()
         if not normalized_pattern:
             return False

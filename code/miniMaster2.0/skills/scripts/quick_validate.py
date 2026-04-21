@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Quick validation for miniMaster skill packages."""
+"""快速校验 miniMaster skill package 结构。"""
 
 from __future__ import annotations
 
@@ -20,6 +20,7 @@ DEFAULT_LIBRARY_ROOT = PROJECT_ROOT / "skills" / "library"
 
 
 def validate_many(skill_dirs: list[Path]) -> int:
+    """批量校验多个 skill 目录，并汇总退出码。"""
     exit_code = 0
     for skill_dir in skill_dirs:
         is_valid, message = validate_skill_directory(skill_dir)
@@ -31,6 +32,7 @@ def validate_many(skill_dirs: list[Path]) -> int:
 
 
 def parse_args() -> argparse.Namespace:
+    """解析命令行参数。"""
     parser = argparse.ArgumentParser(description="Validate one or more miniMaster skill packages.")
     parser.add_argument("skill_path", nargs="?", help="Path to a single skill directory.")
     parser.add_argument(
@@ -42,6 +44,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
+    """脚本入口。"""
     args = parse_args()
 
     if args.all:

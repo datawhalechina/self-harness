@@ -1,3 +1,12 @@
+"""验证循环。
+
+这是 miniMaster 的第三层循环，作用是把“执行器声称自己完成了任务”再独立检查一遍。
+它的关键价值不在于更聪明，而在于：
+- 角色分离：执行和评估不由同一条思路负责到底；
+- 标准显式：验证围绕 completion checklist 逐项判断；
+- 失败可回流：验证反馈会被写回 Generator，驱动下一轮补证据。
+"""
+
 from __future__ import annotations
 
 from domain.task_requirements import build_completion_checklist
@@ -19,12 +28,14 @@ from memory.prompt_context import build_validator_prompt_context
 
 
 def _normalize_requirement_list(value: object) -> list[str]:
+    """把 validate_tool 返回的条目列表压成去重后的标准文本。"""
     if not isinstance(value, list):
         return []
 
     normalized_items: list[str] = []
     seen: set[str] = set()
     for item in value:
+        # 统一压缩多余空白，便于后面和 checklist 做集合比较。
         normalized_item = " ".join(str(item or "").split()).strip()
         if not normalized_item or normalized_item in seen:
             continue
@@ -39,6 +50,7 @@ def _build_requirement_partition_feedback(
     unclassified_items: list[str],
     overlapping_items: list[str],
 ) -> str:
+    """在验证器分类不完整时，生成发回 Generator 的纠偏提示。"""
     lines = [
         "验证器给出的完成项分类不完整或不一致。",
         "请严格按照 completion_checklist 的原文，把每一项逐项归类到 covered_requirements 或 missing_requirements。",
@@ -61,12 +73,20 @@ def run_validate_loop(
     generator_step: int,
     stage_context: dict,
 ) -> tuple[bool, str]:
-    """循环执行 Validate-Agent，并返回是否通过以及对应反馈。"""
+    """循环执行 Validate-Agent，并返回是否通过以及对应反馈。
+
+    这层循环的一个设计重点是“最后一步强制收口”：
+    验证器到了最后一步后，不再允许继续 read/glob/grep/bash，只能直接调用
+    `validate_tool` 给出判定，防止验证阶段无限拖延。
+    """
+    # 取出 Validator 阶段的静态配置。
     role_context = stage_context["validator"]
     agent_name = role_context["agent_name"]
+    # 每次开始验证前，都先清空上一次验证残留的 working memory。
     runtime.validation_memory.clear_memories()
     validate_action_guard = ConsecutiveActionGuard()
     max_validate_steps = runtime.max_validate_steps
+    # 预先准备“只能 validate_tool”的动作集合，供最后一步切换。
     validate_only_actions = tuple(action for action in role_context["actions"] if action.name == "validate_tool")
     validate_only_tools = build_openai_tools(validate_only_actions, runtime.tool_service.get_tool_spec)
     validate_only_policy_text = render_actions_text(validate_only_actions)
@@ -81,9 +101,12 @@ def run_validate_loop(
             return False, feedback
 
         LOGGER.agent_step(agent_name, validation_step, icon="🔍", indent="    ")
+        # 每一步都重新读取任务，保证读到的是最新结论。
         task = runtime.todo_list.get_task_by_name(task_name)
+        # 给 Validator 准备 checklist、task_history 和验证 working memory。
         memory_context = build_validator_prompt_context(runtime, task)
         if validation_step == max_validate_steps:
+            # 最后一步切换到“必须直接判定”的模式。
             memory_context["validation_status"] = (
                 "这已经是验证阶段最后一步。你必须基于现有 task_history 与 working_memory 直接调用 validate_tool，"
                 "不能再继续 read / glob / grep / bash。"
@@ -100,6 +123,7 @@ def run_validate_loop(
             available_tools = role_context["openai_tools"]
             policy_text = role_context["policy_text"]
 
+        # 根据当前模式生成对应 Prompt。
         val_prompt = build_validate_prompt(
             task=runtime.todo_list.to_payload(task),
             memory_context=memory_context,
@@ -127,6 +151,7 @@ def run_validate_loop(
         )
 
         if action.tool != "validate_tool" and validate_action_guard.is_repeated(action):
+            # 与 Executor 一样，验证器重复动作时不立刻崩掉，而是给它一条结构化纠偏反馈。
             reason = build_repeated_action_feedback(
                 agent_name,
                 action,
@@ -145,20 +170,25 @@ def run_validate_loop(
             continue
 
         if action.tool != "validate_tool":
+            # 只对非最终判定动作做重复检测，因为 validate_tool 本来就是收口动作。
             validate_action_guard.remember(action)
 
         if action.tool != "validate_tool":
+            # 非 validate_tool 时，说明 Validator 还在继续取验证证据。
             result = execute_runtime_tool(runtime, action.tool, action.parameters, log_prefix="    ")
             runtime.validation_memory.add_memory(validation_step, action.tool, action.parameters, result)
             LOGGER.tool_result(result, indent="    ", label="验证工具执行结果")
             continue
 
+        # 下面开始解析 validate_tool 的结构化输出。
         status = action.parameters.get("status")
         reason = action.parameters.get("reason", "未知错误")
         covered_requirements = _normalize_requirement_list(action.parameters.get("covered_requirements"))
         missing_requirements = _normalize_requirement_list(action.parameters.get("missing_requirements"))
+        # completion_checklist 来自任务的 done_when + deliverable 归一化结果。
         completion_checklist = build_completion_checklist(task)
         checklist_items = _normalize_requirement_list(completion_checklist)
+        # 后续全部转成集合，是为了做“漏项 / 重叠 / 非法条目”的确定性检查。
         checklist_set = set(checklist_items)
         covered_set = set(covered_requirements)
         missing_set = set(missing_requirements)
@@ -166,6 +196,8 @@ def run_validate_loop(
         unknown_items = sorted((covered_set | missing_set) - checklist_set)
         unclassified_items = sorted(checklist_set - (covered_set | missing_set))
 
+        # Validator 的输出本身也要经过本地确定性检查，避免模型“口头上说覆盖了”
+        # 但实际没把 checklist 分对。
         if checklist_items and (unknown_items or unclassified_items or overlapping_items):
             generator_feedback = _build_requirement_partition_feedback(
                 unknown_items=unknown_items,
@@ -177,6 +209,7 @@ def run_validate_loop(
             return False, generator_feedback
 
         if status == "有效" and missing_requirements:
+            # “有效”与“仍有缺项”在逻辑上冲突，因此直接视为验证失败。
             missing_text = "；".join(missing_requirements)
             generator_feedback = (
                 "验证器判定逻辑不一致：一边给出 `有效`，一边仍报告了未完成项。\n"
@@ -188,6 +221,7 @@ def run_validate_loop(
             return False, generator_feedback
 
         if status == "有效" and checklist_items and covered_set != checklist_set:
+            # 即便 missing_requirements 恰好为空，也必须保证 checklist 全量被覆盖。
             generator_feedback = (
                 "验证器给出了 `有效`，但并未把 completion_checklist 中的全部完成项都标记为已覆盖。\n"
                 "只有当清单中的每一项都被证据覆盖时，才能判定为 `有效`。"
@@ -202,6 +236,7 @@ def run_validate_loop(
             LOGGER.success("验证通过！", indent="    ")
             return True, reason
 
+        # 验证失败时，最重要的是把“失败原因”翻译成下一轮 Generator 能直接执行的提示。
         missing_text = ""
         if missing_requirements:
             missing_text = "\n仍缺的完成项：\n- " + "\n- ".join(missing_requirements)

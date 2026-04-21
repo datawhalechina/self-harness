@@ -35,6 +35,8 @@ def build_openai_tools(
         effective_spec = action
 
         if schema is None and tool_spec_getter is not None:
+            # 对 read/grep 这类真实工具，优先从工具注册表取 schema，
+            # 避免动作定义和工具实现出现两套参数规范。
             tool_spec = tool_spec_getter(action_name)
             if tool_spec:
                 effective_spec = tool_spec
@@ -66,6 +68,7 @@ def decode_agent_tool_call(message: Any, actions: Sequence[ToolSpec]) -> AgentAc
     校验逻辑，保证从“文本 JSON 协议”迁移到“原生 function call”后，
     动作合法性约束不会丢失。
     """
+    # 当前主循环规定“一轮只允许一个动作”，因此这里也做强约束。
     tool_calls = list(getattr(message, "tool_calls", None) or [])
     raw_response = _serialize_message(message)
 
@@ -195,7 +198,10 @@ def _matches_type(expected_type: str, value: Any) -> bool:
 
 
 def _has_explicit_schema(spec: ToolSpec) -> Optional[Dict[str, Any]]:
-    """区分“显式 schema”与默认空对象 schema。"""
+    """区分“显式 schema”与默认空对象 schema。
+
+    空对象 schema 在这里被视为“未声明参数结构”，这样上层就还有机会去工具注册表里补全。
+    """
     schema = spec.input_schema
     if schema == {"type": "object", "properties": {}}:
         return None

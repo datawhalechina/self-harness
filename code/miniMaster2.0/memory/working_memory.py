@@ -1,3 +1,12 @@
+"""工作记忆系统。
+
+这是 miniMaster 里最体现“上下文工程”思想的模块之一。它并不追求保存完整日志，
+而是追求把“接下来最有帮助的信息”保留下来，因此做了三件事：
+1. 记录每一步工具调用和结果
+2. 把过长结果裁剪成模型可承受的摘要
+3. 在上下文超限时，把更早的步骤压成稳定 summary
+"""
+
 from __future__ import annotations
 
 from dataclasses import asdict
@@ -7,6 +16,8 @@ from domain.types import MemoryEntry, MemoryToolCall
 
 
 DEFAULT_WORKING_MEMORY_MAX_CHARS = 12000
+# 下面这组常量控制记忆裁剪策略。它们集中声明在顶部，便于教学时观察
+# “Prompt 可读性”和“保留证据完整度”之间的取舍。
 MEMORY_TEXT_PREVIEW_CHARS = 600
 MEMORY_LINE_PREVIEW_CHARS = 240
 MEMORY_LIST_PREVIEW_ITEMS = 6
@@ -29,32 +40,45 @@ class WorkingMemory:
     """工作记忆管理类。"""
 
     def __init__(self, keep_latest_n: int = 3, max_chars: int = DEFAULT_WORKING_MEMORY_MAX_CHARS):
+        # 还没有被压缩掉的“近期逐步记忆”。
         self.memories: list[MemoryEntry] = []
+        # 超过这个数量后，较早步骤就有资格被压缩成 summary。
         self.keep_latest_n = keep_latest_n
+        # 整份工作记忆允许占用的最大字符预算。
         self.max_chars = max_chars
+        # 更早历史会被压成这一段摘要文本。
         self.summary = ""
 
     def add_memory(self, step: int, tool_name: str, parameters: dict, result):
+        """记录一步新记忆，并先对参数/结果做面向 Prompt 的压缩。"""
+        # 参数先压缩，避免把大对象原样塞进记忆。
         compacted_parameters = compact_for_memory(parameters)
         self.memories.append(
             MemoryEntry(
+                # 记录发生在第几步。
                 step=step,
                 tool_call=MemoryToolCall(
+                    # 记录动作名。
                     tool_name=tool_name,
+                    # 记录压缩后的参数。
                     parameters=compacted_parameters,
                 ),
+                # 结果会按工具类型定制压缩。
                 result=prepare_memory_result(tool_name, compacted_parameters, result),
             )
         )
 
     def get_all_memories_payload(self) -> list[dict]:
+        """以可序列化形式返回全部记忆。"""
         return [asdict(memory) for memory in self.memories]
 
     def get_all_memories(self):
+        """返回记忆对象副本。"""
         return self.memories.copy()
 
     def get_feedback_memories(self, limit: int | None = None) -> list[MemoryEntry]:
         """返回最近的系统反馈记忆。"""
+        # system_feedback 是一类特殊记忆，不代表真实工具执行。
         feedbacks = [memory for memory in self.memories if is_feedback_entry(memory)]
         if limit is None:
             return feedbacks
@@ -62,6 +86,7 @@ class WorkingMemory:
 
     def get_recent_tool_memories(self, limit: int | None = None) -> list[MemoryEntry]:
         """返回最近的非反馈执行记忆。"""
+        # 这里会过滤掉 system_feedback，只保留真实行动轨迹。
         steps = [memory for memory in self.memories if not is_feedback_entry(memory)]
         if limit is None:
             return steps
@@ -73,10 +98,17 @@ class WorkingMemory:
         return feedbacks[-1] if feedbacks else None
 
     def render_for_generator_prompt(self) -> str:
-        """把工作记忆渲染成更利于 Generator 决策的上下文视图。"""
+        """把工作记忆渲染成更利于 Generator 决策的上下文视图。
+
+        这个视图强调：
+        - 当前最紧急的 system feedback
+        - 最近执行证据
+        - 更早阶段的摘要
+        """
         sections = []
         latest_feedback = self.get_latest_feedback()
         if latest_feedback is not None:
+            # 最新反馈单独提升优先级，让 Executor 一眼看到当前最该处理的问题。
             sections.append(
                 "【当前最优先响应的问题】\n"
                 f"- {build_result_summary('system_feedback', latest_feedback.result)}"
@@ -98,6 +130,7 @@ class WorkingMemory:
                 )
 
         if self.summary:
+            # 更早历史已经被压成摘要，不再逐条展开。
             sections.append(f"【早期步骤摘要】\n{self.summary}")
 
         recent_steps = self.get_recent_tool_memories(limit=MEMORY_RECENT_STEP_LIMIT)
@@ -111,7 +144,12 @@ class WorkingMemory:
         return "\n\n".join(sections)
 
     def render_for_validation_prompt(self) -> str:
-        """把验证记忆渲染成“验证条件视图”。"""
+        """把验证记忆渲染成“验证条件视图”。
+
+        相比 Generator 视图，它会额外把最近动作区分成：
+        - 已验证成功的证据
+        - 暂时失败或暴露缺口的线索
+        """
         sections = []
         latest_feedback = self.get_latest_feedback()
         if latest_feedback is not None:
@@ -144,12 +182,15 @@ class WorkingMemory:
         recent_action_lines = []
 
         for entry in recent_steps:
+            # 每条最近验证动作都会被转成统一摘要行。
             summary_line = build_memory_entry_line(entry)
             recent_action_lines.append(summary_line)
 
             result = entry.result if isinstance(entry.result, dict) else {}
+            # success=True 视为已经确认的证据。
             if result.get("success") is True:
                 validated_lines.append(summary_line)
+            # success=False 则视为缺口或失败线索。
             elif result.get("success") is False:
                 missing_lines.append(summary_line)
 
@@ -206,6 +247,7 @@ class WorkingMemory:
 
         recent_steps = self.get_recent_tool_memories(limit=MEMORY_RECENT_STEP_LIMIT)
         if recent_steps:
+            # Planner 更关心最新 observation，因此单独高亮最后一条。
             sections.append(
                 "【最近一次侦察 observation】\n"
                 f"- {build_memory_entry_line(recent_steps[-1])}"
@@ -231,6 +273,7 @@ class WorkingMemory:
         for entry in recent_steps:
             summary_line = build_memory_entry_line(entry)
             result = entry.result if isinstance(entry.result, dict) else {}
+            # 成功/失败分开保存，是为了下一轮既知道什么能复用，也知道什么别再重试。
             if result.get("success") is False:
                 failed_lines.append(summary_line)
             else:
@@ -266,10 +309,15 @@ class WorkingMemory:
         raise ValueError(f"未知工作记忆视图: {view}")
 
     def compact_old_memories(self) -> bool:
-        """在上下文超限时，把较早步骤压成确定性摘要。"""
+        """在上下文超限时，把较早步骤压成确定性摘要。
+
+        压缩策略是“保留最近若干步原文 + 把更早内容总结成摘要”，
+        这比简单丢弃旧步骤更适合长时运行场景。
+        """
         if len(self.memories) <= self.keep_latest_n:
             return False
 
+        # 先粗略估算“当前 summary + 全部 memories”占多少字符。
         context_length = len(
             safe_json(
                 {
@@ -281,15 +329,18 @@ class WorkingMemory:
         if context_length <= self.max_chars:
             return False
 
+        # 只把较早部分压缩，最近 keep_latest_n 步原样保留。
         older_entries = self.memories[:-self.keep_latest_n]
         self.commit_summary(build_compacted_summary(self.summary, older_entries))
         return True
 
     def commit_summary(self, new_summary: str):
+        """提交新摘要，并只保留最近未压缩的几步。"""
         self.summary = new_summary
         self.memories = self.memories[-self.keep_latest_n:]
 
     def clear_memories(self):
+        """清空当前工作记忆。"""
         self.memories = []
         self.summary = ""
 
@@ -303,8 +354,15 @@ def truncate_text(text, limit: int = MEMORY_TEXT_PREVIEW_CHARS) -> str:
 
 
 def compact_for_memory(value, depth: int = 0):
-    """把任意工具输入/输出压缩成更适合放进工作记忆的结构。"""
+    """把任意工具输入/输出压缩成更适合放进工作记忆的结构。
+
+    这里不是简单截断，而是按数据类型做差异化压缩：
+    - dict: 只保留前若干字段，并对关键字段单独裁剪
+    - list: 只保留前若干项
+    - str: 截成预览片段
+    """
     if depth >= MEMORY_MAX_DEPTH:
+        # 嵌套太深时直接转成字符串预览，防止复杂对象递归爆炸。
         return truncate_text(json.dumps(value, ensure_ascii=False, default=str), limit=MEMORY_LINE_PREVIEW_CHARS)
 
     if isinstance(value, dict):
@@ -313,6 +371,7 @@ def compact_for_memory(value, depth: int = 0):
 
         for key, item_value in items[:MEMORY_DICT_PREVIEW_ITEMS]:
             if key == "matches" and isinstance(item_value, list):
+                # 搜索命中列表通常最容易暴涨，因此单独限制预览条数。
                 compacted[key] = [
                     compact_for_memory(match, depth + 1)
                     for match in item_value[:MEMORY_LIST_PREVIEW_ITEMS]
@@ -323,10 +382,12 @@ def compact_for_memory(value, depth: int = 0):
                 continue
 
             if key in {"stdout", "stderr", "content", "error", "message"} and isinstance(item_value, str):
+                # 这些字段最可能很长，因此优先按文本规则裁剪。
                 compacted[key] = truncate_text(item_value, limit=MEMORY_TEXT_PREVIEW_CHARS)
                 continue
 
             if key == "line_content" and isinstance(item_value, str):
+                # 单行文本预览长度可以更短一些。
                 compacted[key] = truncate_text(item_value, limit=MEMORY_LINE_PREVIEW_CHARS)
                 continue
 
@@ -334,10 +395,12 @@ def compact_for_memory(value, depth: int = 0):
 
         omitted_keys = len(items) - MEMORY_DICT_PREVIEW_ITEMS
         if omitted_keys > 0:
+            # 保留“省略了多少字段”的痕迹，提醒模型这不是完整对象。
             compacted["_omitted_key_count"] = omitted_keys
         return compacted
 
     if isinstance(value, (list, tuple)):
+        # 列表和元组统一按“预览前若干项 + 省略说明”处理。
         preview = [compact_for_memory(item, depth + 1) for item in value[:MEMORY_LIST_PREVIEW_ITEMS]]
         omitted_items = len(value) - MEMORY_LIST_PREVIEW_ITEMS
         if omitted_items > 0:
@@ -366,6 +429,7 @@ def safe_json(value) -> str:
 
 
 def _prepare_read_result(parameters: dict, result: dict) -> dict:
+    """把 read 工具结果压成“文件 + 行号 + 片段”的摘要结构。"""
     success = bool(result.get("success"))
     if not success:
         return {
@@ -374,6 +438,7 @@ def _prepare_read_result(parameters: dict, result: dict) -> dict:
             "error": truncate_text(result.get("error", ""), limit=MEMORY_LINE_PREVIEW_CHARS),
         }
 
+    # 这些字段能帮助后续 Prompt 知道“这次到底读到了文件哪一段”。
     start_line = result.get("start_line")
     end_line = result.get("end_line")
     total_lines = result.get("total_lines")
@@ -391,6 +456,7 @@ def _prepare_read_result(parameters: dict, result: dict) -> dict:
 
 
 def _prepare_grep_result(result: dict) -> dict:
+    """把 grep 工具结果压成“命中概览”而不是完整命中列表。"""
     success = bool(result.get("success"))
     if not success:
         return {
@@ -401,6 +467,7 @@ def _prepare_grep_result(result: dict) -> dict:
     matches = result.get("matches", []) or []
     hits_preview = []
     for match in matches[:MEMORY_SEARCH_HIT_PREVIEW]:
+        # 只取少数命中，保留文件、行号、命中文本和行内容预览。
         file_path = match.get("file", "")
         line_number = match.get("line_number", "?")
         matched_text = match.get("matched_text", "")
@@ -420,6 +487,7 @@ def _prepare_grep_result(result: dict) -> dict:
 
 
 def _prepare_glob_result(result: dict) -> dict:
+    """把 glob 工具结果压成文件/目录计数与少量预览。"""
     success = bool(result.get("success"))
     if not success:
         return {
@@ -439,6 +507,7 @@ def _prepare_glob_result(result: dict) -> dict:
 
 
 def _prepare_bash_result(result: dict) -> dict:
+    """把 bash 工具结果压成 returncode 与 stdout/stderr 预览。"""
     success = bool(result.get("success"))
     payload = {
         "success": success,
@@ -459,6 +528,7 @@ def _prepare_bash_result(result: dict) -> dict:
 def prepare_memory_result(tool_name: str, parameters: dict, result):
     """把工具结果裁剪到适合继续喂给模型的大小。"""
     if tool_name == "system_feedback":
+        # 系统反馈本来就是给模型读的自然语言，直接截成可接受长度即可。
         return truncate_text(result, limit=MEMORY_TEXT_PREVIEW_CHARS)
 
     if isinstance(result, dict):
@@ -477,6 +547,7 @@ def prepare_memory_result(tool_name: str, parameters: dict, result):
         return compacted
 
     if isinstance(compacted, dict) and isinstance(compacted.get("matches"), list):
+        # 对搜索类结果再做一轮专门缩减，避免大批量命中把上下文塞满。
         trimmed_matches = dict(compacted)
         matches_preview = trimmed_matches["matches"][:3]
         trimmed_matches["matches"] = matches_preview
@@ -489,6 +560,7 @@ def prepare_memory_result(tool_name: str, parameters: dict, result):
             return compacted
 
     return {
+        # 即便压得很狠，也尽量保留 success 信号。
         "success": bool(result.get("success")) if isinstance(result, dict) else True,
         "note": f"{tool_name} 工具结果过长，已压缩为摘要",
         "preview": truncate_text(compacted_text, limit=MEMORY_RESULT_HARD_LIMIT),
@@ -503,6 +575,7 @@ def build_result_summary(tool_name: str, result) -> str:
     if not isinstance(result, dict):
         return _compact_line(result, limit=220)
 
+    # 绝大多数工具摘要都会先展示一个成败标记。
     success = result.get("success")
     status_text = "成功" if success else "失败"
 
@@ -602,7 +675,13 @@ def render_limited_bullets(lines: list[str], limit: int, empty_line: str) -> str
 
 
 def build_compacted_summary(existing_summary: str, entries: list[MemoryEntry]) -> str:
-    """把较早的执行记录压成稳定、可读的本地摘要。"""
+    """把较早的执行记录压成稳定、可读的本地摘要。
+
+    压缩后的摘要仍然区分两类信息：
+    - 已确认的事实
+    - 失败路径与反馈
+    这样下一轮模型不仅知道“以前看到了什么”，还知道“哪些路不要再走”。
+    """
     fact_lines = []
     issue_lines = []
     for entry in entries:

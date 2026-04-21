@@ -1,3 +1,11 @@
+"""引擎层通用辅助函数。
+
+这个模块主要做三类事情：
+- 提供跨 engine 复用的小判断
+- 统一生成反馈文案
+- 统一封装真实运行时工具执行入口
+"""
+
 from __future__ import annotations
 
 import time
@@ -57,6 +65,7 @@ def build_generator_stall_feedback(reason: str) -> str:
 
 def push_generator_feedback(runtime: AgentRuntime, generator_step: int, feedback: str):
     """把反馈写入 Generator 工作记忆，供下一轮直接读取。"""
+    # 故意写到 `step + 1`，这样在视觉上更像“下一步先处理这条反馈”。
     runtime.generator_memory.add_memory(generator_step + 1, "system_feedback", {}, feedback)
 
 
@@ -80,7 +89,11 @@ def mark_unfinished_tasks_blocked(runtime: AgentRuntime, feedback: str):
 
 
 def execute_runtime_tool(runtime: AgentRuntime, tool_name: str, parameters: dict, log_prefix: str = ""):
-    """执行真正的运行时工具。"""
+    """执行真正的运行时工具。
+
+    控制动作（如 `init_tasks`、`subagent_tool`）不应该混入工具执行链；
+    只有真正访问文件系统/命令行的动作才会走到这里。
+    """
     if tool_name in _CONTROL_ACTIONS:
         return {"success": False, "error": f"控制指令 '{tool_name}' 不应通过工具执行链调用"}
 

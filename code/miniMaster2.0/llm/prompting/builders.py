@@ -4,6 +4,7 @@ from __future__ import annotations
 
 
 def build_workspace_block(workspace_path: str) -> str:
+    """把工作目录事实渲染成清晰的 Prompt 小节。"""
     normalized_workspace = (workspace_path or ".").strip()
     lines = [
         f"当前工作目录是：{normalized_workspace}",
@@ -14,6 +15,7 @@ def build_workspace_block(workspace_path: str) -> str:
 
 
 def build_runtime_environment_block(system_name: str, command_shell: str) -> str:
+    """把系统和 shell 信息翻译成 Prompt 中可直接消费的操作约束。"""
     normalized_system = (system_name or "Unknown").strip()
     normalized_shell = (command_shell or "shell").strip()
     lines = [
@@ -29,6 +31,7 @@ def build_runtime_environment_block(system_name: str, command_shell: str) -> str
 
 
 def build_execution_context_block(workspace_path: str, system_name: str, command_shell: str) -> str:
+    """组装跨角色共享的环境上下文块。"""
     return "\n".join([
         "【工作目录信息】",
         build_workspace_block(workspace_path),
@@ -44,6 +47,14 @@ def build_plan_prompt(
     memory_context: dict[str, str],
     policy_text: str,
 ) -> str:
+    """构造 Planner-Agent 的 user prompt。
+
+    这份 Prompt 的重点不是告诉 Planner 如何写代码，而是告诉它：
+    - 当前任务面板是什么样
+    - 目前掌握了哪些项目理解
+    - 是否还允许继续侦察
+    - 每个控制动作的边界是什么
+    """
     done_task_summaries = memory_context.get("done_task_summaries", "")
     failed_task_signals = memory_context.get("failed_task_signals", "")
     current_project_understanding = memory_context.get("current_project_understanding", "")
@@ -142,6 +153,12 @@ def build_generator_prompt(
     search_tools: str,
     policy_text: str,
 ) -> str:
+    """构造 Executor-Agent 的 user prompt。
+
+    这里会同时把 task、completion checklist、retry history、working memory、
+    available skills 和可用工具都拼进去，目的是让执行器优先围绕当前任务闭环，
+    而不是重新从头理解整个项目。
+    """
     available_skills = memory_context.get("available_skills", "")
     completion_checklist = memory_context.get("completion_checklist", "")
     retry_history = memory_context.get("retry_history", "")
@@ -221,6 +238,11 @@ def build_validate_prompt(
     search_tools: str,
     policy_text: str,
 ) -> str:
+    """构造 Validator-Agent 的 user prompt。
+
+    相比 Executor，Validator 不关心“怎么完成”，而更关心“是否真的完成”。
+    因此 Prompt 会突出 checklist、task_history 和 validation_status。
+    """
     completion_checklist = memory_context.get("completion_checklist", "")
     task_history = memory_context.get("task_history", "")
     working_memory = memory_context.get("working_memory", "")

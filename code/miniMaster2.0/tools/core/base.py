@@ -51,6 +51,7 @@ class BaseTool(ABC):
         if not isinstance(params, dict):
             raise TypeError("工具参数必须是字典")
 
+        # ToolSpec 里的 input_schema 会作为这次校验的依据。
         schema = self.input_schema
         properties = schema.get("properties", {})
         required_fields = schema.get("required", [])
@@ -69,6 +70,7 @@ class BaseTool(ABC):
         for field_name, value in params.items():
             field_schema = properties.get(field_name)
             if not field_schema:
+                # 未声明 schema 的字段在 additionalProperties=True 时直接放过。
                 continue
             self._validate_field(field_name, value, field_schema)
 
@@ -83,14 +85,17 @@ class BaseTool(ABC):
         则原样返回。
         """
         if not path:
+            # 空路径默认落回 workspace，自然对应“当前目录”语义。
             return self.context.workspace or os.getcwd()
 
         expanded_path = os.path.expandvars(os.path.expanduser(path))
 
         if os.path.isabs(expanded_path):
+            # 绝对路径直接标准化后返回。
             return os.path.abspath(expanded_path)
 
         workspace = self.context.workspace or os.getcwd()
+        # 相对路径统一挂到 workspace 下，确保所有工具解释一致。
         return os.path.abspath(os.path.join(workspace, expanded_path))
 
     def relativize_path(self, path: str) -> str:
@@ -107,16 +112,21 @@ class BaseTool(ABC):
         try:
             common_path = os.path.commonpath([absolute_path, workspace_path])
         except ValueError:
+            # 不在同一盘符等情况下，commonpath 可能报错，此时直接返回绝对路径。
             return absolute_path
 
         if common_path != workspace_path:
+            # 路径不在 workspace 内时，也保留绝对路径。
             return absolute_path
 
         relative_path = os.path.relpath(absolute_path, workspace_path)
         return "." if relative_path == "." else relative_path
 
     def execute(self, params: Dict[str, Any]) -> Dict[str, Any]:
-        """执行标准流程：校验参数 -> 运行工具 -> 归一化结果。"""
+        """执行标准流程：校验参数 -> 运行工具 -> 归一化结果。
+
+        这一步把所有工具执行都收敛成同一控制流，是整个工具系统可维护性的关键。
+        """
         self.validate(params)
         result = self.run(dict(params))
         return self.normalize_result(result)
@@ -128,6 +138,7 @@ class BaseTool(ABC):
                 f"{self.__class__.__name__}.run() 必须返回 ToolResult，实际返回 {type(result).__name__}"
             )
 
+        # `success` 总是固定放在最前面，便于上层统一读取。
         payload = {"success": result.success, **result.data}
         if result.error is not None:
             payload["error"] = result.error

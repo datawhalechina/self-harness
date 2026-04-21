@@ -1,3 +1,5 @@
+"""Skill 领域对象定义。"""
+
 from dataclasses import dataclass, field
 
 
@@ -19,5 +21,9 @@ class Skill:
 
     @property
     def has_instructions(self) -> bool:
-        """标记当前对象是否已经加载了 SKILL.md 正文。"""
+        """标记当前对象是否已经加载了 SKILL.md 正文。
+
+        这样 `load_all()` 可以只加载元数据，而 `find()` 在真正命中后再加载正文，
+        避免一次性把所有指令全文都塞进上下文。
+        """
         return bool(self.instructions.strip())
