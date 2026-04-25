@@ -10,7 +10,7 @@
 
 ## 🌐 在线阅读
 
-**[🚀 访问链接](https://self-harness.datawhale.cc)**
+**[🚀 访问链接](https://datawhalechina.github.io/self-harness/)**
 
 ## ✨ 你将收获什么？
 

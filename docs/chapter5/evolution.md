@@ -28,8 +28,8 @@ Prompt Engineering 假设了**环境是静态的**。当面对需要跨越多个
 
 ## 2.Context Engineering —— 解决“如何信息供给”
 
-如果说 Prompt 是一封邮件的正文，那么 Context 就是邮件的附件。到了 2025 年前后，随着模型上下文窗口（Context Window）扩展到 1M 甚至 2M tokens（如 Claude 3 系），工程师们发现，一味地扩大窗口不仅极其昂贵，而且会导致模型“注意力涣散”（Lost in the Middle 现象）。因此，**Context Engineering 应运而生，它不再关心“怎么说”，而关心“给它看什么”。**
-
+随着模型上下文窗口（Context Window）扩展到 1M 甚至 2M tokens（如 Claude 3 系），工程师们发现，一味地扩大窗口不仅极其昂贵，而且会导致模型“注意力涣散”（Lost in the Middle 现象）。因此，**Context Engineering 应运而生，它不再关心“怎么说”，而关心“给它看什么”。**
+另一方面，即使模型能够支持超长上下文，但是在实际场景中，输入如果接近上下文窗口，不仅会出现上下文腐坏（内容过多，模型无法很好的分析和回答问题），也会出现上下文焦虑（提前结束输出）
 ### a. 核心命题与解决的痛点
 
 * **核心命题**：如何在对的时间、以对的密度，向模型提供最相关的背景信息？
@@ -38,9 +38,9 @@ Prompt Engineering 假设了**环境是静态的**。当面对需要跨越多个
 
 ### b. 关键突破技术
 
-* **检索增强生成 (RAG, Retrieval-Augmented Generation)**：打通外部知识库与模型。通过向量数据库和混合检索技术，只把与当前 query 最相关的 Top-K 信息塞进提示词中。
+* **检索增强生成 (RAG, Retrieval-Augmented Generation)**：加入外挂知识库。通过向量数据库和混合检索技术，只把与当前 query 最相关的 Top-K 信息塞进提示词中。
 * **渐进式披露 (Progressive Disclosure)**：面对庞大的代码库，不一次性给全，而是先给目录树（Architecture Map），让模型自己决定需要“展开”查看哪个具体文件的代码。
-* **分层上下文与状态注入**：在多轮任务中动态维护上下文。正如你所指出的，Context Engineering 包含了“Prompt 规划”。它需要决定：System Prompt 里放什么（基础规则），历史消息保留多少（滑动窗口机制），当前执行步骤的上下文如何注入。
+* **分层上下文与状态注入**：在多轮任务中动态维护上下文。Context Engineering 包含了“Prompt 规划”。它需要决定：System Prompt 里放什么（基础规则），历史消息保留多少（滑动窗口机制），当前执行步骤的上下文如何注入。
 
 ### c. 局限性与向上的过渡
 
@@ -50,7 +50,7 @@ Context Engineering 保证了模型在单次推理时拥有“完美的情报”
 
 ## 3.Harness Engineering —— 解决“如何稳定执行”
 
-从内容划分上来看，harness engineering相对于context engineering增加了**状态管理**、**智能体编排**与**效果评估**
+但从范围上来看，harness engineering相对于context engineering增加了**状态管理**、**智能体编排**与**验证**
 
 ### a. 核心命题与解决的痛点
 
@@ -61,14 +61,12 @@ Context Engineering 保证了模型在单次推理时拥有“完美的情报”
 ### b. 关键突破技术
 
 * **多智能体编排 (Orchestration)**：Harness 将任务拆解，分别派发给“规划者（Planner）”、“执行者（Actor）”和“评审者（Reviewer）”。
-* **评估器分离与反馈循环 (Evaluators & Feedback Loops)**：这是 Harness 的灵魂。当模型写完一段代码后，Harness 不会立刻相信它，而是自动在沙箱中运行编译、跑测试用例（Sensors）。如果报错，Harness 会将错误堆栈信息打包，重新扔回给模型要求修改。**这完全独立于 Context Engineering，这是一种运行时（Runtime）的干预。**
+* **评估器分离与反馈循环 (Evaluators & Feedback Loops)**：这是 Harness 的灵魂。当模型写完一段代码后，并不会立马标记任务的完成，而是自动在沙箱中运行编译、跑测试用例（Sensors）。如果报错，Harness 会将错误堆栈信息打包，重新扔回给模型要求修改。**这完全独立于 Context Engineering，这是一种运行时（Runtime）的干预。**
 * **状态与工作区管理 (State & Workspace Management)**：给模型配备持久化的“文件系统”和“记忆库”。让大模型可以将中间结果落盘（保存为文件），这样即使会话中断，Agent 也能读取上一步的工作状态继续执行，真正实现了跨会话的长期任务。
 
 ---
 
 ## 4.三者的区别
-
-为了厘清Prompt、Context和Harness三者的区别，我们可以将 Agent 视作一家公司：
 
 | 阶段                      | 核心命题   | 关键突破              | 解决的核心痛点     |
 | ----------------------- | ------ | ----------------- | ----------- |
@@ -80,4 +78,4 @@ Context Engineering 保证了模型在单次推理时拥有“完美的情报”
 
 如同 Anthropic 团队在构建长时间运行智能体时所发现的：大模型本质上是非确定性的（Non-deterministic），它们只思考下一个 Token。如果你让它连续思考 8 个小时，微小的错误概率会不断累积。
 
-Context Engineering 只能保证每次思考时“手上拿的资料是对的”。 但只有 **Harness Engineering** 能够保证运行的过程时稳定的
+Context Engineering 只能保证每次思考时“手上拿的资料是对的”。 但只有 **Harness Engineering** 能够保证运行的过程稳定
