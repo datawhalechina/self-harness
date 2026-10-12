@@ -43,7 +43,8 @@ class SessionMemoryManager:
         validation_has_memories = bool(self.runtime.validation_memory.get_all_memories())
         task_feedback = str(task.last_feedback or "").strip()
         task_conclusion = str(task.task_conclusion or "").strip()
-        if not any([generator_has_memories, validation_has_memories, task_feedback, task_conclusion]):
+        # 旧结论仍保存在任务卡上；空尝试不能只凭旧结论挤掉已有的失败证据。
+        if not any([generator_has_memories, validation_has_memories, task_feedback]):
             return
 
         archive_sections = []

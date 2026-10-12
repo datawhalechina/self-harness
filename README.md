@@ -176,6 +176,15 @@ code/miniMaster2.0/
 └── requirements.txt        # 依赖列表
 ```
 
+### 离线回归测试
+
+安装 `code/miniMaster2.0/requirements.txt` 中的依赖后，可以运行任务记忆生命周期测试。测试使用本地临时文件和预设模型动作，无需 API Key，也不会请求模型：
+
+```bash
+cd code/miniMaster2.0
+python -m unittest discover -s tests -v
+```
+
 ## 贡献者名单
 
 | 姓名 | 职责 | GitHub |

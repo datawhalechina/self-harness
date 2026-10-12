@@ -322,30 +322,41 @@ def run_task(
     # 新任务开始执行时，先清空旧反馈。
     runtime.todo_list.update_last_feedback(task_name, "")
 
-    for retry_index in range(1, runtime.max_task_retries + 1):
-        if _block_task_for_runtime_timeout(runtime, task_name, "当前任务被标记为 BLOCKED。"):
-            return
+    try:
+        for retry_index in range(1, runtime.max_task_retries + 1):
+            if _block_task_for_runtime_timeout(runtime, task_name, "当前任务被标记为 BLOCKED。"):
+                return
 
-        current_task = _get_task_or_warn(runtime, task_name, f"任务执行过程中丢失任务: {task_name}")
-        if current_task is None:
-            return
+            current_task = _get_task_or_warn(runtime, task_name, f"任务执行过程中丢失任务: {task_name}")
+            if current_task is None:
+                return
 
-        # 每次新尝试前，先把上一轮已经积累的经验压缩归档，供下一轮 Prompt 使用。
-        session_memory.capture_retry_archive(current_task)
-        # 这次尝试正式开始，attempt_count +1。
-        runtime.todo_list.increment_attempt_count(task_name)
-        # 重新给本轮创建干净的 Generator working memory。
-        session_memory.reset_generator_memory()
-        LOGGER.task_retry(executor_agent_name, retry_index)
+            # 每次新尝试前，先把上一轮已经积累的经验压缩归档，供下一轮 Prompt 使用。
+            session_memory.capture_retry_archive(current_task)
+            # 验证证据已进入上一轮归档，不能再混入本轮尝试。
+            runtime.validation_memory.clear_memories()
+            # 这次尝试正式开始，attempt_count +1。
+            runtime.todo_list.increment_attempt_count(task_name)
+            # 重新给本轮创建干净的 Generator working memory。
+            session_memory.reset_generator_memory()
+            LOGGER.task_retry(executor_agent_name, retry_index)
 
-        retry_outcome = _run_single_retry(
-            runtime,
-            task_name,
-            executor_agent_name,
-            stage_context,
-            session_memory,
-        )
-        if retry_outcome in {"done", "blocked", "abort"}:
-            return
+            retry_outcome = _run_single_retry(
+                runtime,
+                task_name,
+                executor_agent_name,
+                stage_context,
+                session_memory,
+            )
+            if retry_outcome in {"done", "blocked", "abort"}:
+                return
 
-    _mark_task_failed(runtime, task_name)
+        _mark_task_failed(runtime, task_name)
+    finally:
+        # 失败、阻塞或异常退出时也保存最后一轮，后续恢复同一任务仍可复用。
+        current_task = runtime.todo_list.get_task_by_name(task_name)
+        if current_task is not None and current_task.task_status != "DONE":
+            session_memory.capture_retry_archive(current_task)
+        # 阶段记忆由各任务共享；退出前清空，避免下一任务把这些证据归档到自己名下。
+        runtime.generator_memory.clear_memories()
+        runtime.validation_memory.clear_memories()
