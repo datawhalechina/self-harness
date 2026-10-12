@@ -24,6 +24,12 @@
 
 在实际使用时，Planner、Executor、Validator 都会优先依赖这类专用搜索工具，而不是一开始就退回到 bash。
 
+Glob 默认排除工作区内的隐藏路径，但工作区自身及其父目录的名称不影响文件发现。例如，工作区为 `.worktrees/demo` 时，`**/*.py` 仍应找到其中的 `app.py` 和 `src/main.py`，并继续排除 `.github/check.py`。可在 `code/miniMaster2.0/` 下运行真实工具入口的离线回归测试：
+
+```bash
+python -m unittest discover -s tests -p test_glob_tool.py -v
+```
+
 ### 1.3 工具核心层 (Tool Core)
 
 `tools/core/` 是工具系统的管理框架，负责统一登记、实例化和执行工具。具体工具只需要关心自己的业务逻辑，而公共问题（工具上下文、执行入口、Prompt 渲染）则交给核心层处理。

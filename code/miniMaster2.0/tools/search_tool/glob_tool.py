@@ -50,8 +50,9 @@ class GlobTool(BaseTool):
 
         for match in matches:
             if not include_hidden:
-                # glob 本身对隐藏路径控制有限，这里按路径片段再做一次过滤。
-                parts = match.split(os.sep)
+                # 只判断 workspace 内的相对路径，避免 workspace 或祖先目录
+                # 的点名前缀（如 .worktrees）把普通文件也当成隐藏文件。
+                parts = self.relativize_path(match).split(os.sep)
                 if any(part.startswith(".") and part not in [".", ".."] for part in parts):
                     continue
 
