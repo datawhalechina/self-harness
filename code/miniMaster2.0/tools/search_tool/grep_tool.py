@@ -145,7 +145,8 @@ class GrepTool(BaseTool):
             # 非递归目录搜索时，把最大深度限制到 1。
             command.extend(["--max-depth", "1"])
 
-        # 先追加正则模式，再追加目标路径。
+        # 结束选项解析，避免以 '-' 开头的正则或路径被 rg 当作命令选项。
+        command.append("--")
         command.append(pattern)
         command.append(self._build_search_target(resolved_path))
 
